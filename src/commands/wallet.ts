@@ -1,0 +1,167 @@
+import { Command } from 'commander';
+import { GearKeyring } from '@gear-js/api';
+import { saveWallet, loadWallet, listWallets, exportWallet, isEncrypted, readPassphraseFile, ensurePassphraseFile } from '../services/wallet-store';
+import { resolvePassphrase } from '../services/account';
+import { readConfig, updateConfig } from '../services/config';
+import { output, verbose, CliError } from '../utils';
+
+export function registerWalletCommand(program: Command): void {
+  const wallet = program.command('wallet').description('Manage wallets');
+
+  wallet
+    .command('create')
+    .description('Create a new wallet')
+    .option('--name <name>', 'wallet name', 'default')
+    .option('--passphrase <passphrase>', 'passphrase to encrypt the wallet')
+    .option('--no-encrypt', 'create unencrypted wallet (not recommended)')
+    .option('--show-secret', 'include mnemonic and seed in output')
+    .action(async (options: { name: string; passphrase?: string; encrypt: boolean; showSecret?: boolean }) => {
+      verbose(`Creating wallet "${options.name}"`);
+
+      let passphrase: string | undefined;
+      if (options.encrypt) {
+        // Resolve passphrase: --passphrase flag → file → env → auto-generate
+        passphrase = options.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
+        if (!passphrase) {
+          passphrase = ensurePassphraseFile();
+        }
+      }
+
+      const result = await GearKeyring.create(options.name, passphrase);
+      const filePath = saveWallet(options.name, result.json);
+
+      const out: Record<string, unknown> = {
+        address: result.keyring.address,
+        name: options.name,
+        encrypted: options.encrypt,
+        path: filePath,
+      };
+
+      if (options.showSecret) {
+        out.mnemonic = result.mnemonic;
+        out.seed = result.seed;
+      }
+
+      output(out);
+    });
+
+  wallet
+    .command('import')
+    .description('Import a wallet from mnemonic, seed, or JSON keystore')
+    .option('--name <name>', 'wallet name', 'imported')
+    .option('--mnemonic <mnemonic>', 'mnemonic phrase')
+    .option('--seed <seed>', 'seed (hex or SURI like //Alice)')
+    .option('--json <path>', 'path to JSON keystore file')
+    .option('--passphrase <passphrase>', 'passphrase to encrypt the imported wallet')
+    .option('--no-encrypt', 'store unencrypted (not recommended)')
+    .action(async (options: { name: string; mnemonic?: string; seed?: string; json?: string; passphrase?: string; encrypt: boolean }) => {
+      let keyring;
+
+      if (options.mnemonic) {
+        keyring = await GearKeyring.fromMnemonic(options.mnemonic, options.name);
+      } else if (options.seed) {
+        keyring = await GearKeyring.fromSuri(options.seed, options.name);
+      } else if (options.json) {
+        const fs = await import('fs');
+        const raw = fs.readFileSync(options.json, 'utf-8');
+        const jsonData = JSON.parse(raw);
+        const importPassphrase = options.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
+        try {
+          keyring = GearKeyring.fromJson(jsonData, importPassphrase);
+        } catch {
+          throw new CliError(
+            'Failed to decrypt imported JSON. The file may use a different passphrase.',
+            'IMPORT_DECRYPT_FAILED',
+          );
+        }
+      } else {
+        throw new CliError(
+          'Provide --mnemonic, --seed, or --json to import a wallet',
+          'MISSING_IMPORT_SOURCE',
+        );
+      }
+
+      let passphrase: string | undefined;
+      if (options.encrypt) {
+        passphrase = options.passphrase || readPassphraseFile() || process.env.VARA_PASSPHRASE || undefined;
+        if (!passphrase) {
+          passphrase = ensurePassphraseFile();
+        }
+      }
+
+      const json = keyring.toJson(passphrase);
+      const filePath = saveWallet(options.name, json);
+
+      output({
+        address: keyring.address,
+        name: options.name,
+        encrypted: options.encrypt,
+        path: filePath,
+      });
+    });
+
+  wallet
+    .command('list')
+    .description('List all wallets')
+    .action(() => {
+      const config = readConfig();
+      const wallets = listWallets(config.defaultAccount);
+
+      output(wallets);
+    });
+
+  wallet
+    .command('export')
+    .description('Export a wallet as JSON keystore')
+    .argument('<name>', 'wallet name')
+    .option('--decrypt', 'export decrypted JSON (exposes private key)')
+    .action((name: string, options: { decrypt?: boolean }) => {
+      const json = exportWallet(name);
+
+      if (options.decrypt && isEncrypted(json)) {
+        const passphrase = resolvePassphrase();
+        if (!passphrase) {
+          throw new CliError(
+            `Wallet "${name}" is encrypted. Create ~/.vara-wallet/.passphrase or set VARA_PASSPHRASE to decrypt.`,
+            'PASSPHRASE_REQUIRED',
+          );
+        }
+        try {
+          const keyring = GearKeyring.fromJson(json, passphrase);
+          output(keyring.toJson());
+        } catch {
+          throw new CliError(
+            `Failed to decrypt wallet "${name}". Check your passphrase.`,
+            'DECRYPT_FAILED',
+          );
+        }
+        return;
+      }
+
+      output(json);
+    });
+
+  wallet
+    .command('default')
+    .description('Get or set the default wallet')
+    .argument('[name]', 'wallet name to set as default')
+    .action((name?: string) => {
+      if (name) {
+        // Verify wallet exists by loading it
+        loadWallet(name);
+        updateConfig({ defaultAccount: name });
+        verbose(`Default wallet set to "${name}"`);
+        output({ name, status: 'set' });
+      } else {
+        const config = readConfig();
+        if (!config.defaultAccount) {
+          throw new CliError('No default account configured', 'NO_DEFAULT');
+        }
+        const json = loadWallet(config.defaultAccount);
+        output({
+          name: config.defaultAccount,
+          address: json.address,
+        });
+      }
+    });
+}

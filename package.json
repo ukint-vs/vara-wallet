@@ -1,0 +1,56 @@
+{
+  "name": "vara-wallet",
+  "version": "0.1.0",
+  "description": "Agentic wallet CLI for Vara Network — designed for AI coding agents",
+  "main": "dist/app.js",
+  "bin": {
+    "vara-wallet": "dist/app.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "start": "node dist/app.js",
+    "dev": "ts-node src/app.ts",
+    "test": "jest",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@gear-js/api": "^0.44.2",
+    "@polkadot/api": "^16.5.4",
+    "chalk": "^4",
+    "commander": "^14.0.3",
+    "sails-js": "^0.5.1",
+    "sails-js-parser": "^0.5.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.5",
+    "typescript": "^5.9.3"
+  },
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ukint-vs/vara-wallet.git"
+  },
+  "keywords": [
+    "vara",
+    "gear",
+    "wallet",
+    "cli",
+    "agentic",
+    "blockchain",
+    "substrate",
+    "polkadot",
+    "ai-agent"
+  ],
+  "author": "ukint-vs",
+  "bugs": {
+    "url": "https://github.com/ukint-vs/vara-wallet/issues"
+  },
+  "homepage": "https://github.com/ukint-vs/vara-wallet#readme"
+}
