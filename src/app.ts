@@ -21,6 +21,9 @@ import { registerVftCommand } from './commands/vft';
 import { registerVoucherCommand } from './commands/voucher';
 import { registerEncodeCommand } from './commands/encode';
 import { registerTxCommand } from './commands/tx';
+import { registerSubscribeCommand } from './commands/subscribe';
+import { registerInboxCommand } from './commands/inbox';
+import { registerEventsCommand } from './commands/events';
 
 installGlobalErrorHandler();
 
@@ -74,6 +77,21 @@ registerVftCommand(program);
 registerVoucherCommand(program);
 registerEncodeCommand(program);
 registerTxCommand(program);
+
+// Register commands — Phase 4: Subscriptions & Event Store
+registerSubscribeCommand(program);
+registerInboxCommand(program);
+registerEventsCommand(program);
+
+// Graceful shutdown (moved from api.ts so subscribe/keepAlive can override)
+process.on('SIGINT', () => {
+  disconnectApi();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  disconnectApi();
+  process.exit(0);
+});
 
 async function main(): Promise<void> {
   try {

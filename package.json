@@ -21,6 +21,7 @@
     "@gear-js/api": "^0.44.2",
     "@polkadot/api": "^16.5.4",
     "@polkadot/util": "^14.0.2",
+    "better-sqlite3": "^11.0.0",
     "chalk": "^4",
     "commander": "^14.0.3",
     "sails-js": "^0.5.1",
@@ -28,6 +29,7 @@
     "smoldot": "https://github.com/ukint-vs/smoldot-gear/releases/download/v2.0.40-gear/smoldot-2.0.40.tgz"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
     "jest": "^30.2.0",
