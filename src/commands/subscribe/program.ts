@@ -33,16 +33,15 @@ export function registerProgramCommand(parent: Command): void {
         const unsub = await api.gearEvents.subscribeToGearEvent(
           'ProgramChanged',
           safeCallback((event) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const eventData = (event as any).data;
-            const id = eventData.id.toHex();
+            const { id: progId, change } = event.data;
+            const id = progId.toHex();
 
             if (id !== programIdHex) return;
 
             const data = {
               type: 'program' as const,
               programId: id,
-              status: eventData.change.toString(),
+              status: change.toString(),
               timestamp: Date.now(),
             };
 

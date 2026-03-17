@@ -1,3 +1,4 @@
+import type { UserMessageSent } from '@gear-js/api';
 import {
   validateEventName,
   validateFromBlock,
@@ -174,7 +175,7 @@ describe('formatUserMessageSent', () => {
       },
     };
 
-    const result = formatUserMessageSent(mockEvent);
+    const result = formatUserMessageSent(mockEvent as unknown as UserMessageSent);
     expect(result).toEqual({
       messageId: '0xabc',
       source: '0x111',
@@ -205,7 +206,7 @@ describe('formatUserMessageSent', () => {
       },
     };
 
-    const result = formatUserMessageSent(mockEvent);
+    const result = formatUserMessageSent(mockEvent as unknown as UserMessageSent);
     expect(result.details).toEqual({
       replyTo: '0xreply',
       code: 'Success',

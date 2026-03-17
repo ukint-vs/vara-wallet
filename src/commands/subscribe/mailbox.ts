@@ -37,28 +37,27 @@ export function registerMailboxCommand(parent: Command): void {
         const unsub = await api.gearEvents.subscribeToGearEvent(
           'UserMessageSent',
           safeCallback((event) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const msgData = (event as any).data;
-            const dest = msgData.message.destination.toHex();
+            const { message } = event.data;
+            const dest = message.destination.toHex();
 
             if (dest !== resolvedAddress) return;
 
             const data = {
               type: 'mailbox' as const,
               action: 'received' as const,
-              messageId: msgData.message.id.toHex(),
-              source: msgData.message.source.toHex(),
+              messageId: message.id.toHex(),
+              source: message.source.toHex(),
               destination: dest,
-              payload: msgData.message.payload.toHex(),
-              value: msgData.message.value.toString(),
+              payload: message.payload.toHex(),
+              value: message.value.toString(),
               timestamp: Date.now(),
             };
 
             emitAndPersist(data, persist, {
               type: 'mailbox',
-              event_id: msgData.message.id.toHex(),
+              event_id: message.id.toHex(),
               data,
-              source: msgData.message.source.toHex(),
+              source: message.source.toHex(),
               destination: dest,
             });
 
@@ -75,19 +74,18 @@ export function registerMailboxCommand(parent: Command): void {
         const unsub = await api.gearEvents.subscribeToGearEvent(
           'UserMessageRead',
           safeCallback((event) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const readData = (event as any).data;
+            const { id, reason } = event.data;
             const data = {
               type: 'mailbox' as const,
               action: 'read' as const,
-              messageId: readData.id.toHex(),
-              reason: readData.reason.toString(),
+              messageId: id.toHex(),
+              reason: reason.toString(),
               timestamp: Date.now(),
             };
 
             emitAndPersist(data, persist, {
               type: 'mailbox',
-              event_id: readData.id.toHex(),
+              event_id: id.toHex(),
               data,
               destination: resolvedAddress,
             });

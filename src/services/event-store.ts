@@ -5,6 +5,9 @@ import { getConfigDir } from './config';
 import { verbose } from '../utils';
 
 let db: Database.Database | null = null;
+let insertStmt: Database.Statement | null = null;
+let readStmt: Database.Statement | null = null;
+let pruneStmt: Database.Statement | null = null;
 
 const DEFAULT_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -73,6 +76,14 @@ export function initEventStore(): void {
       CREATE INDEX IF NOT EXISTS idx_events_program_id ON events(program_id);
     `);
 
+    // Prepare cached statements
+    insertStmt = db.prepare(`
+      INSERT INTO events (type, event_id, data, block_number, block_hash, source, destination, program_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    readStmt = db.prepare('SELECT * FROM events WHERE event_id = ? ORDER BY created_at DESC LIMIT 1');
+    pruneStmt = db.prepare('DELETE FROM events WHERE created_at < ?');
+
     // Auto-prune old events on startup
     pruneEvents(DEFAULT_PRUNE_AGE_MS);
 
@@ -84,14 +95,10 @@ export function initEventStore(): void {
 }
 
 export function insertEvent(event: EventInsert): void {
-  if (!db) return;
+  if (!insertStmt) return;
 
   try {
-    const stmt = db.prepare(`
-      INSERT INTO events (type, event_id, data, block_number, block_hash, source, destination, program_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
+    insertStmt.run(
       event.type,
       event.event_id ?? null,
       JSON.stringify(event.data),
@@ -157,15 +164,15 @@ export function queryEvents(filters?: EventQueryFilters): EventRow[] {
 }
 
 export function readEvent(eventId: string): EventRow | undefined {
-  if (!db) return undefined;
-  return db.prepare('SELECT * FROM events WHERE event_id = ? ORDER BY created_at DESC LIMIT 1').get(eventId) as EventRow | undefined;
+  if (!readStmt) return undefined;
+  return readStmt.get(eventId) as EventRow | undefined;
 }
 
 export function pruneEvents(olderThanMs: number): number {
-  if (!db) return 0;
+  if (!pruneStmt) return 0;
 
   const cutoff = Date.now() - olderThanMs;
-  const result = db.prepare('DELETE FROM events WHERE created_at < ?').run(cutoff);
+  const result = pruneStmt.run(cutoff);
   if (result.changes > 0) {
     verbose(`Pruned ${result.changes} events older than ${Math.round(olderThanMs / (1000 * 60 * 60))}h`);
   }
@@ -180,5 +187,8 @@ export function closeEventStore(): void {
       // Ignore close errors
     }
     db = null;
+    insertStmt = null;
+    readStmt = null;
+    pruneStmt = null;
   }
 }

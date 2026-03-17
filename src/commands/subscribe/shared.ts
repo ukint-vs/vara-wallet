@@ -1,4 +1,4 @@
-import { GearApi } from '@gear-js/api';
+import { GearApi, type UserMessageSent } from '@gear-js/api';
 import { outputNdjson, verbose, CliError } from '../../utils';
 import { insertEvent, type EventInsert } from '../../services/event-store';
 import { disconnectApi } from '../../services/api';
@@ -221,19 +221,18 @@ export async function withReconnect(
 /**
  * Extract fields from a UserMessageSent event.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function formatUserMessageSent(event: any): Record<string, unknown> {
-  const data = event.data;
+export function formatUserMessageSent(event: UserMessageSent): Record<string, unknown> {
+  const { message } = event.data;
   return {
-    messageId: data.message.id.toHex(),
-    source: data.message.source.toHex(),
-    destination: data.message.destination.toHex(),
-    payload: data.message.payload.toHex(),
-    value: data.message.value.toString(),
-    details: data.message.details.isSome
+    messageId: message.id.toHex(),
+    source: message.source.toHex(),
+    destination: message.destination.toHex(),
+    payload: message.payload.toHex(),
+    value: message.value.toString(),
+    details: message.details.isSome
       ? {
-          replyTo: data.message.details.unwrap().to.toHex(),
-          code: data.message.details.unwrap().code.toString(),
+          replyTo: message.details.unwrap().to.toHex(),
+          code: message.details.unwrap().code.toString(),
         }
       : null,
   };
