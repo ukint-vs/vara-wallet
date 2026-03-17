@@ -136,8 +136,8 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--salt <hex>] [--metadata <path>]
-vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--salt <hex>] [--metadata <path>]
+vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>]
 ```
@@ -155,7 +155,7 @@ vara-wallet code list [--count <n>]
 High-level method invocation on Sails programs. Auto-detects queries vs functions.
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--gas-limit <n>] [--idl <path>]
+vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>]
 ```
 
 ### `discover` (Sails)
@@ -180,6 +180,13 @@ vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>]
 vara-wallet voucher issue <spender> <value> [--units vara|raw] [--duration <blocks>] [--programs <ids>]
 vara-wallet voucher list <account> [--program <id>]
 vara-wallet voucher revoke <spender> <voucherId>
+```
+
+### `mailbox`
+
+```bash
+vara-wallet mailbox read [address]
+vara-wallet mailbox claim <messageId>
 ```
 
 ### `state`
