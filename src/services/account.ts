@@ -1,6 +1,6 @@
 import { GearKeyring } from '@gear-js/api';
 import { KeyringPair } from '@polkadot/keyring/types';
-import { CliError, verbose } from '../utils';
+import { CliError, verbose, addressToHex } from '../utils';
 import { readConfig } from './config';
 import { loadWallet, isEncrypted, readPassphraseFile } from './wallet-store';
 
@@ -105,15 +105,16 @@ export async function resolveAccount(options: AccountOptions): Promise<KeyringPa
 /**
  * Resolve account address for read-only queries.
  * Falls back to a provided address string if no account is configured.
+ * Always returns a normalized hex address (0x...).
  */
-export async function resolveAddress(addressOrOptions: string | undefined, options: AccountOptions): Promise<string> {
+export async function resolveAddress(addressOrOptions: string | undefined, options: AccountOptions): Promise<`0x${string}`> {
   if (addressOrOptions) {
-    return addressOrOptions;
+    return addressToHex(addressOrOptions);
   }
 
   try {
     const account = await resolveAccount(options);
-    return account.address;
+    return addressToHex(account.address);
   } catch {
     throw new CliError(
       'No address specified. Provide an address argument or configure an account.',

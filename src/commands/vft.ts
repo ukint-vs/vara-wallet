@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails } from '../services/sails';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerVftCommand(program: Command): void {
   const vft = program.command('vft').description('VFT (fungible token) operations');
@@ -10,26 +10,27 @@ export function registerVftCommand(program: Command): void {
   vft
     .command('balance')
     .description('Query VFT token balance')
-    .argument('<tokenProgram>', 'VFT program ID (0x...)')
-    .argument('[account]', 'account address to query (defaults to configured account)')
+    .argument('<tokenProgram>', 'VFT program ID (hex or SS58)')
+    .argument('[account]', 'account address to query, hex or SS58 (defaults to configured account)')
     .option('--idl <path>', 'path to local IDL file')
     .action(async (tokenProgram: string, account: string | undefined, options: { idl?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
+      const tokenProgramHex = addressToHex(tokenProgram);
       const address = await resolveAddress(account, opts);
 
-      const sails = await loadSails(api, { programId: tokenProgram, idl: options.idl });
+      const sails = await loadSails(api, { programId: tokenProgramHex, idl: options.idl });
 
       // Find the VFT service — could be named "Vft", "Service", etc.
       const serviceName = findVftService(sails, 'BalanceOf');
 
-      verbose(`Querying VFT balance for ${address} on ${tokenProgram}`);
+      verbose(`Querying VFT balance for ${address} on ${tokenProgramHex}`);
 
       const query = sails.services[serviceName].queries['BalanceOf'];
       const result = await query(address).call();
 
       output({
-        tokenProgram,
+        tokenProgram: tokenProgramHex,
         account: address,
         balance: String(result),
       });
@@ -38,22 +39,23 @@ export function registerVftCommand(program: Command): void {
   vft
     .command('transfer')
     .description('Transfer VFT tokens')
-    .argument('<tokenProgram>', 'VFT program ID (0x...)')
-    .argument('<to>', 'destination address')
+    .argument('<tokenProgram>', 'VFT program ID (hex or SS58)')
+    .argument('<to>', 'destination address (hex or SS58)')
     .argument('<amount>', 'amount to transfer')
     .option('--idl <path>', 'path to local IDL file')
     .action(async (tokenProgram: string, to: string, amount: string, options: { idl?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
+      const toHex = addressToHex(to);
 
-      const sails = await loadSails(api, { programId: tokenProgram, idl: options.idl });
+      const sails = await loadSails(api, { programId: addressToHex(tokenProgram), idl: options.idl });
       const serviceName = findVftService(sails, 'Transfer');
 
-      verbose(`Transferring ${amount} tokens to ${to}`);
+      verbose(`Transferring ${amount} tokens to ${toHex}`);
 
       const func = sails.services[serviceName].functions['Transfer'];
-      const txBuilder = func(to, BigInt(amount));
+      const txBuilder = func(toHex, BigInt(amount));
 
       txBuilder.withAccount(account);
       await txBuilder.calculateGas();
@@ -72,22 +74,23 @@ export function registerVftCommand(program: Command): void {
   vft
     .command('approve')
     .description('Approve VFT token spending')
-    .argument('<tokenProgram>', 'VFT program ID (0x...)')
-    .argument('<spender>', 'spender address')
+    .argument('<tokenProgram>', 'VFT program ID (hex or SS58)')
+    .argument('<spender>', 'spender address (hex or SS58)')
     .argument('<amount>', 'amount to approve')
     .option('--idl <path>', 'path to local IDL file')
     .action(async (tokenProgram: string, spender: string, amount: string, options: { idl?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
+      const spenderHex = addressToHex(spender);
 
-      const sails = await loadSails(api, { programId: tokenProgram, idl: options.idl });
+      const sails = await loadSails(api, { programId: addressToHex(tokenProgram), idl: options.idl });
       const serviceName = findVftService(sails, 'Approve');
 
-      verbose(`Approving ${amount} tokens for ${spender}`);
+      verbose(`Approving ${amount} tokens for ${spenderHex}`);
 
       const func = sails.services[serviceName].functions['Approve'];
-      const txBuilder = func(spender, BigInt(amount));
+      const txBuilder = func(spenderHex, BigInt(amount));
 
       txBuilder.withAccount(account);
       await txBuilder.calculateGas();

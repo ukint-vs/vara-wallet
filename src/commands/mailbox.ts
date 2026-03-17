@@ -10,7 +10,7 @@ export function registerMailboxCommand(program: Command): void {
   mailbox
     .command('read')
     .description('Read mailbox messages for an account')
-    .argument('[address]', 'account address (defaults to configured account)')
+    .argument('[address]', 'account address, hex or SS58 (defaults to configured account)')
     .action(async (address?: string) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -18,7 +18,7 @@ export function registerMailboxCommand(program: Command): void {
 
       verbose(`Reading mailbox for ${resolvedAddress}`);
 
-      const messages = await api.mailbox.read(resolvedAddress as `0x${string}`);
+      const messages = await api.mailbox.read(resolvedAddress);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const items = messages.map((item: any) => {

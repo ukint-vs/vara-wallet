@@ -1,12 +1,10 @@
 import { Command } from 'commander';
 import { ProgramMetadata } from '@gear-js/api';
-import { decodeAddress } from '@polkadot/util-crypto';
-import { u8aToHex } from '@polkadot/util';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerMessageCommand(program: Command): void {
   const message = program.command('message').description('Low-level message operations');
@@ -14,7 +12,7 @@ export function registerMessageCommand(program: Command): void {
   message
     .command('send')
     .description('Send a message to any on-chain actor (program, user, wallet)')
-    .argument('<destination>', 'destination address or program ID (0x...)')
+    .argument('<destination>', 'destination address or program ID (hex or SS58)')
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with message (in VARA)', '0')
@@ -39,6 +37,7 @@ export function registerMessageCommand(program: Command): void {
         meta = ProgramMetadata.from(metaHex);
       }
 
+      const destinationHex = addressToHex(destination);
       const payload = options.payload;
 
       // Auto-calculate gas if not provided
@@ -47,10 +46,10 @@ export function registerMessageCommand(program: Command): void {
         gasLimit = BigInt(options.gasLimit);
       } else {
         verbose('Calculating gas...');
-        const sourceHex = u8aToHex(decodeAddress(account.address));
+        const sourceHex = addressToHex(account.address);
         const gasInfo = await api.program.calculateGas.handle(
-          sourceHex as `0x${string}`,
-          destination as `0x${string}`,
+          sourceHex,
+          destinationHex,
           payload,
           value,
           true,
@@ -66,10 +65,10 @@ export function registerMessageCommand(program: Command): void {
         }
       }
 
-      verbose(`Sending message to ${destination}`);
+      verbose(`Sending message to ${destinationHex}`);
 
       const tx = api.message.send({
-        destination: destination as `0x${string}`,
+        destination: destinationHex,
         payload,
         gasLimit,
         value,
@@ -128,9 +127,9 @@ export function registerMessageCommand(program: Command): void {
         gasLimit = BigInt(options.gasLimit);
       } else {
         verbose('Calculating gas...');
-        const sourceHex = u8aToHex(decodeAddress(account.address));
+        const sourceHex = addressToHex(account.address);
         const gasInfo = await api.program.calculateGas.reply(
-          sourceHex as `0x${string}`,
+          sourceHex,
           messageId as `0x${string}`,
           payload,
           value,
@@ -162,11 +161,11 @@ export function registerMessageCommand(program: Command): void {
   message
     .command('calculate-reply')
     .description('Calculate reply from a program without sending a transaction')
-    .argument('<programId>', 'destination program ID (0x...)')
+    .argument('<programId>', 'destination program ID (hex or SS58)')
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
     .option('--value <value>', 'value to simulate (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
-    .option('--origin <address>', 'origin address for the calculation')
+    .option('--origin <address>', 'origin address for the calculation (hex or SS58)')
     .option('--at <blockHash>', 'block hash to query state at')
     .action(async (programId: string, options: {
       payload: string;
@@ -181,13 +180,13 @@ export function registerMessageCommand(program: Command): void {
       const value = resolveAmount(options.value, isRaw);
 
       // Resolve origin - use provided address or account
-      let origin: string;
+      let origin: `0x${string}`;
       if (options.origin) {
-        origin = options.origin;
+        origin = addressToHex(options.origin);
       } else {
         try {
           const account = await resolveAccount(opts);
-          origin = account.address;
+          origin = addressToHex(account.address);
         } catch {
           throw new CliError(
             'Provide --origin address or configure an account for calculate-reply',
@@ -196,11 +195,12 @@ export function registerMessageCommand(program: Command): void {
         }
       }
 
-      verbose(`Calculating reply from ${programId}`);
+      const programIdHex = addressToHex(programId);
+      verbose(`Calculating reply from ${programIdHex}`);
 
       const replyInfo = await api.message.calculateReply({
         origin,
-        destination: programId,
+        destination: programIdHex,
         payload: options.payload,
         value,
         at: options.at as `0x${string}` | undefined,

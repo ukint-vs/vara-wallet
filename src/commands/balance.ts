@@ -3,13 +3,13 @@ import { BN } from '@polkadot/util';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerBalanceCommand(program: Command): void {
   program
     .command('balance')
     .description('Query account balance')
-    .argument('[address]', 'account address (defaults to configured account)')
+    .argument('[address]', 'account address, hex or SS58 (defaults to configured account)')
     .action(async (address?: string) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -29,7 +29,7 @@ export function registerBalanceCommand(program: Command): void {
   program
     .command('transfer')
     .description('Transfer VARA tokens')
-    .argument('<to>', 'destination address')
+    .argument('<to>', 'destination address (hex or SS58)')
     .argument('<amount>', 'amount to transfer (in VARA by default)')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .action(async (to: string, amount: string, options: { units?: string }) => {
@@ -43,16 +43,17 @@ export function registerBalanceCommand(program: Command): void {
         throw new CliError('Amount must be positive', 'INVALID_AMOUNT');
       }
 
-      verbose(`Transferring ${minimalToVara(amountMinimal)} VARA from ${account.address} to ${to}`);
+      const toHex = addressToHex(to);
+      verbose(`Transferring ${minimalToVara(amountMinimal)} VARA from ${account.address} to ${toHex}`);
 
-      const tx = api.balance.transfer(to, new BN(amountMinimal.toString()));
+      const tx = api.balance.transfer(toHex, new BN(amountMinimal.toString()));
       const result = await executeTx(api, tx, account);
 
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
         from: account.address,
-        to,
+        to: toHex,
         amount: minimalToVara(amountMinimal),
         amountRaw: amountMinimal.toString(),
       });

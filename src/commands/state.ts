@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerStateCommand(program: Command): void {
   const state = program.command('state').description('Program state operations');
@@ -9,9 +9,9 @@ export function registerStateCommand(program: Command): void {
   state
     .command('read')
     .description('Read program state via calculateReply')
-    .argument('<programId>', 'program ID (0x...)')
+    .argument('<programId>', 'program ID (hex or SS58)')
     .option('--payload <payload>', 'state query payload (hex or JSON)', '0x')
-    .option('--origin <address>', 'origin address for the query')
+    .option('--origin <address>', 'origin address for the query (hex or SS58)')
     .option('--at <blockHash>', 'block hash to query state at')
     .action(async (programId: string, options: {
       payload: string;
@@ -21,13 +21,13 @@ export function registerStateCommand(program: Command): void {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
 
-      let origin: string;
+      let origin: `0x${string}`;
       if (options.origin) {
-        origin = options.origin;
+        origin = addressToHex(options.origin);
       } else {
         try {
           const account = await resolveAccount(opts);
-          origin = account.address;
+          origin = addressToHex(account.address);
         } catch {
           throw new CliError(
             'Provide --origin address or configure an account for state read',
@@ -36,11 +36,12 @@ export function registerStateCommand(program: Command): void {
         }
       }
 
-      verbose(`Reading state from program ${programId}`);
+      const programIdHex = addressToHex(programId);
+      verbose(`Reading state from program ${programIdHex}`);
 
       const replyInfo = await api.message.calculateReply({
         origin,
-        destination: programId,
+        destination: programIdHex,
         payload: options.payload,
         at: options.at as `0x${string}` | undefined,
       });

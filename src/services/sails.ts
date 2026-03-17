@@ -2,7 +2,7 @@ import { GearApi } from '@gear-js/api';
 import { Sails } from 'sails-js';
 import { SailsIdlParser } from 'sails-js-parser';
 import * as fs from 'fs';
-import { CliError, verbose } from '../utils';
+import { CliError, verbose, addressToHex } from '../utils';
 import { readConfig } from './config';
 
 let parserPromise: Promise<SailsIdlParser> | null = null;
@@ -33,10 +33,11 @@ export async function loadSails(
   const parser = await getParser();
   const sails = new Sails(parser);
 
-  const idlString = await resolveIdl(api, options);
+  const programId = addressToHex(options.programId);
+  const idlString = await resolveIdl(api, { ...options, programId });
   sails.parseIdl(idlString);
   sails.setApi(api);
-  sails.setProgramId(options.programId as `0x${string}`);
+  sails.setProgramId(programId);
 
   return sails;
 }

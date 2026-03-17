@@ -2,20 +2,20 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails, describeSailsProgram } from '../services/sails';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
     .command('call')
     .description('Call a Sails program method (auto-detects query vs function)')
-    .argument('<programId>', 'program ID (0x...)')
+    .argument('<programId>', 'program ID (hex or SS58)')
     .argument('<method>', 'Service/Method name (e.g. Counter/Increment)')
     .option('--args <json>', 'method arguments as JSON array', '[]')
     .option('--value <value>', 'value to send (in VARA, functions only)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--gas-limit <gas>', 'gas limit override (functions only)')
     .option('--idl <path>', 'path to local IDL file')
-    .action(async (programId: string, method: string, options: {
+    .action(async (programIdArg: string, method: string, options: {
       args: string;
       value: string;
       units?: string;
@@ -24,6 +24,7 @@ export function registerCallCommand(program: Command): void {
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
+      const programId = addressToHex(programIdArg);
 
       // Parse Service/Method
       const parts = method.split('/');

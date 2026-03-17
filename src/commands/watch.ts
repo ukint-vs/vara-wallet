@@ -1,18 +1,19 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
-import { outputNdjson, verbose } from '../utils';
+import { outputNdjson, verbose, addressToHex } from '../utils';
 
 export function registerWatchCommand(program: Command): void {
   program
     .command('watch')
     .description('Stream program events as NDJSON')
-    .argument('<programId>', 'program ID to watch (0x...)')
+    .argument('<programId>', 'program ID to watch (hex or SS58)')
     .option('--event <type>', 'event type to filter (UserMessageSent, MessageQueued, etc.)')
     .action(async (programId: string, options: { event?: string }) => {
       const opts = program.optsWithGlobals() as { ws?: string };
       const api = await getApi(opts.ws);
 
-      verbose(`Watching events for program ${programId}`);
+      const programIdHex = addressToHex(programId);
+      verbose(`Watching events for program ${programIdHex}`);
 
       if (options.event) {
         // Subscribe to a specific event type
@@ -30,7 +31,7 @@ export function registerWatchCommand(program: Command): void {
       } else {
         // Default: subscribe to UserMessageSent filtered by source program
         await api.gearEvents.subscribeToUserMessageSentByActor(
-          { from: programId as `0x${string}` },
+          { from: programIdHex },
           (event) => {
             const data = event.data;
             outputNdjson({

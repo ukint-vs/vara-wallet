@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex } from '../utils';
 
 export function registerProgramCommand(program: Command): void {
   const prog = program.command('program').description('Program operations');
@@ -51,7 +51,7 @@ export function registerProgramCommand(program: Command): void {
       } else {
         verbose('Calculating gas for program upload...');
         const gasInfo = await api.program.calculateGas.initUpload(
-          account.address as `0x${string}`,
+          addressToHex(account.address),
           code,
           options.payload,
           value,
@@ -120,7 +120,7 @@ export function registerProgramCommand(program: Command): void {
       } else {
         verbose('Calculating gas for program creation...');
         const gasInfo = await api.program.calculateGas.initCreate(
-          account.address as `0x${string}`,
+          addressToHex(account.address),
           codeId as `0x${string}`,
           options.payload,
           value,
@@ -155,29 +155,30 @@ export function registerProgramCommand(program: Command): void {
   prog
     .command('info')
     .description('Get program information')
-    .argument('<programId>', 'program ID (0x...)')
+    .argument('<programId>', 'program ID (hex or SS58)')
     .action(async (programId: string) => {
       const opts = program.optsWithGlobals() as { ws?: string };
       const api = await getApi(opts.ws);
 
-      verbose(`Fetching info for program ${programId}`);
+      const programIdHex = addressToHex(programId);
+      verbose(`Fetching info for program ${programIdHex}`);
 
-      const exists = await api.program.exists(programId as `0x${string}`);
+      const exists = await api.program.exists(programIdHex);
       if (!exists) {
-        throw new CliError(`Program ${programId} not found`, 'PROGRAM_NOT_FOUND');
+        throw new CliError(`Program ${programIdHex} not found`, 'PROGRAM_NOT_FOUND');
       }
 
-      const codeId = await api.program.codeId(programId);
+      const codeId = await api.program.codeId(programIdHex);
 
       let metaHash: string | null = null;
       try {
-        metaHash = await api.program.metaHash(programId as `0x${string}`);
+        metaHash = await api.program.metaHash(programIdHex);
       } catch {
         // Program may not have metadata
       }
 
       output({
-        programId,
+        programId: programIdHex,
         exists: true,
         codeId,
         metaHash,
