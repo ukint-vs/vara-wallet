@@ -126,12 +126,12 @@ vara-wallet transfer <to> <amount> [--units vara|raw]
 ### `message`
 
 ```bash
-vara-wallet message send <programId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
+vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
 vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
 vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units vara|raw] [--origin <addr>] [--at <blockHash>]
 ```
 
-Gas is auto-calculated if `--gas-limit` is omitted. Use `--value` to transfer VARA tokens alongside a message (e.g., for payable program calls).
+Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor (program, user, wallet). Use `--value` to transfer VARA tokens alongside a message.
 
 ### `program`
 
