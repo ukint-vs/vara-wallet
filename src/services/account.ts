@@ -35,7 +35,7 @@ function loadAndDecryptWallet(name: string): KeyringPair {
   }
 
   try {
-    return GearKeyring.fromJson(json, passphrase);
+    return GearKeyring.fromJson(json, isEncrypted(json) ? passphrase : undefined);
   } catch (err) {
     if (isEncrypted(json)) {
       throw new CliError(
