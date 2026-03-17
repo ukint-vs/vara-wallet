@@ -29,7 +29,7 @@ const program = new Command();
 program
   .name('vara-wallet')
   .description('Agentic wallet CLI for Vara Network — designed for AI coding agents')
-  .version('0.1.0')
+  .version('0.1.2')
   .option('--ws <endpoint>', 'WebSocket endpoint (default: wss://rpc.vara.network)')
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
   .option('--mnemonic <mnemonic>', 'account mnemonic phrase')

@@ -1,6 +1,6 @@
 {
   "name": "vara-wallet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Agentic wallet CLI for Vara Network — designed for AI coding agents",
   "main": "dist/app.js",
   "bin": {
@@ -20,6 +20,7 @@
   "dependencies": {
     "@gear-js/api": "^0.44.2",
     "@polkadot/api": "^16.5.4",
+    "@polkadot/util": "^14.0.2",
     "chalk": "^4",
     "commander": "^14.0.3",
     "sails-js": "^0.5.1",
