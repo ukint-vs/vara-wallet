@@ -13,14 +13,14 @@ export function registerMessageCommand(program: Command): void {
 
   message
     .command('send')
-    .description('Send a message to a program')
-    .argument('<programId>', 'destination program ID (0x...)')
+    .description('Send a message to any on-chain actor (program, user, wallet)')
+    .argument('<destination>', 'destination address or program ID (0x...)')
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with message (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
-    .action(async (programId: string, options: {
+    .action(async (destination: string, options: {
       payload: string;
       gasLimit?: string;
       value: string;
@@ -50,7 +50,7 @@ export function registerMessageCommand(program: Command): void {
         const sourceHex = u8aToHex(decodeAddress(account.address));
         const gasInfo = await api.program.calculateGas.handle(
           sourceHex as `0x${string}`,
-          programId as `0x${string}`,
+          destination as `0x${string}`,
           payload,
           value,
           true,
@@ -66,10 +66,10 @@ export function registerMessageCommand(program: Command): void {
         }
       }
 
-      verbose(`Sending message to ${programId}`);
+      verbose(`Sending message to ${destination}`);
 
       const tx = api.message.send({
-        destination: programId as `0x${string}`,
+        destination: destination as `0x${string}`,
         payload,
         gasLimit,
         value,
