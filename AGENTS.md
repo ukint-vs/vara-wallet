@@ -148,6 +148,25 @@ vara-wallet watch 0x1234...
 # Streams NDJSON: one JSON object per line per event
 ```
 
+### Subscribing to events (with persistence)
+
+`subscribe` streams events like `watch`, but also saves them to a local SQLite database (`~/.vara-wallet/events.db`). This means you can query events between runs — critical for mailbox messages that disappear after ~1 block.
+
+```bash
+# Watch for mailbox messages (they vanish after 1 block — subscribe catches them)
+vara-wallet subscribe mailbox kGioe8b7...
+
+# Wait for exactly 1 transfer event, then exit
+vara-wallet subscribe transfers --count 1 --timeout 30
+
+# Stream new blocks
+vara-wallet subscribe blocks --finalized
+
+# Query captured events later
+vara-wallet inbox list --since 1h
+vara-wallet events list --type mailbox --limit 10
+```
+
 ### VFT (Fungible Token) operations
 
 ```bash

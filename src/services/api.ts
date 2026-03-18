@@ -62,13 +62,5 @@ export function disconnectApi(): void {
   }
 }
 
-// Graceful shutdown
+// Clean up on exit (signal handlers are in app.ts)
 process.on('exit', disconnectApi);
-process.on('SIGINT', () => {
-  disconnectApi();
-  process.exit(0);
-});
-process.on('SIGTERM', () => {
-  disconnectApi();
-  process.exit(0);
-});
