@@ -21,15 +21,17 @@ import { registerVftCommand } from './commands/vft';
 import { registerVoucherCommand } from './commands/voucher';
 import { registerEncodeCommand } from './commands/encode';
 import { registerTxCommand } from './commands/tx';
-
 installGlobalErrorHandler();
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require('../package.json');
 
 const program = new Command();
 
 program
   .name('vara-wallet')
   .description('Agentic wallet CLI for Vara Network — designed for AI coding agents')
-  .version('0.1.2')
+  .version(pkg.version)
   .option('--ws <endpoint>', 'WebSocket endpoint (default: wss://rpc.vara.network)')
   .option('--light', 'use embedded light client (smoldot) instead of WebSocket')
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
