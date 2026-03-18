@@ -47,21 +47,20 @@ export function registerMessageCommand(program: Command): void {
       } else {
         verbose('Calculating gas...');
         const sourceHex = addressToHex(account.address);
-        const gasInfo = await api.program.calculateGas.handle(
-          sourceHex,
-          destinationHex,
-          payload,
-          value,
-          true,
-          meta,
-        );
-        gasLimit = gasInfo.min_limit.toBigInt();
-        verbose(`Gas limit: ${gasLimit}`);
-
-        if (gasLimit === 0n) {
-          const blockGasLimit = api.blockGasLimit.toBigInt();
-          verbose(`Gas calc returned 0, using block gas limit: ${blockGasLimit}`);
-          gasLimit = blockGasLimit;
+        try {
+          const gasInfo = await api.program.calculateGas.handle(
+            sourceHex,
+            destinationHex,
+            payload,
+            value,
+            true,
+            meta,
+          );
+          gasLimit = gasInfo.min_limit.toBigInt();
+          verbose(`Gas limit: ${gasLimit}`);
+        } catch {
+          verbose('Gas calculation failed (destination may be a user account), using gas limit 0');
+          gasLimit = 0n;
         }
       }
 
