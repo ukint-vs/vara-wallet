@@ -15,24 +15,26 @@ export function textToHex(text: string): string {
  * Printable rule: every byte must be 0x20-0x7E (printable ASCII) or 0x0A (newline).
  */
 export function tryHexToText(hex: string): string | undefined {
-  if (!hex || hex === '0x' || hex === '0X') return undefined;
+  if (!hex || hex.toLowerCase() === '0x') return undefined;
 
   const stripped = hex.startsWith('0x') || hex.startsWith('0X') ? hex.slice(2) : hex;
   if (stripped.length === 0 || stripped.length % 2 !== 0) return undefined;
 
-  const bytes: number[] = [];
-  for (let i = 0; i < stripped.length; i += 2) {
-    const byte = parseInt(stripped.slice(i, i + 2), 16);
-    if (isNaN(byte)) return undefined;
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(stripped, 'hex');
+  } catch {
+    return undefined;
+  }
+
+  for (const byte of buffer) {
     // Strict ASCII printable (0x20-0x7E) or newline (0x0A)
-    if (byte === 0x0a || (byte >= 0x20 && byte <= 0x7e)) {
-      bytes.push(byte);
-    } else {
+    if (!(byte === 0x0a || (byte >= 0x20 && byte <= 0x7e))) {
       return undefined;
     }
   }
 
-  return Buffer.from(bytes).toString('ascii');
+  return buffer.toString('ascii');
 }
 
 /**
