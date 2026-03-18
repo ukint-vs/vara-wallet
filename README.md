@@ -212,9 +212,45 @@ Wait for a reply to a message.
 vara-wallet wait <messageId> [--timeout <seconds>]
 ```
 
+### `subscribe`
+
+Subscribe to on-chain events with NDJSON streaming and optional SQLite persistence. Events are stored in `~/.vara-wallet/events.db` so they survive between runs.
+
+```bash
+vara-wallet subscribe blocks [--finalized]
+vara-wallet subscribe messages <programId> [--type <eventName>] [--from-block <n>]
+vara-wallet subscribe mailbox <address>
+vara-wallet subscribe balance <address>
+vara-wallet subscribe transfers [--from <addr>] [--to <addr>]
+vara-wallet subscribe program <programId>
+```
+
+**Global subscribe options:**
+- `--count <n>` — exit after N events (useful for scripting)
+- `--timeout <seconds>` — exit after N seconds
+- `--no-persist` — stream only, skip SQLite persistence
+
+### `inbox`
+
+Query captured mailbox messages from the event store.
+
+```bash
+vara-wallet inbox list [--since <duration>] [--limit <n>]
+vara-wallet inbox read <messageId>
+```
+
+### `events`
+
+Query and manage all captured events from the event store.
+
+```bash
+vara-wallet events list [--type <type>] [--since <duration>] [--program <id>] [--limit <n>]
+vara-wallet events prune [--older-than <duration>]
+```
+
 ### `watch`
 
-Stream program events as NDJSON.
+Stream program events as NDJSON. For persistent event capture with SQLite storage, see `subscribe` above.
 
 ```bash
 vara-wallet watch <programId> [--event <type>]
@@ -233,6 +269,7 @@ vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <i
 ~/.vara-wallet/
   config.json          # wsEndpoint, defaultAccount, metaStorageUrl
   .passphrase          # Auto-generated or human-provided (0600)
+  events.db            # SQLite event store (subscribe/inbox/events)
   wallets/
     default.json       # Encrypted keystore (0600)
     *.json

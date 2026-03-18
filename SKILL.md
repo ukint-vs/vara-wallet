@@ -57,6 +57,10 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW discover <pid> --idl <path>` | Introspect Sails services, methods, events |
 | `$VW state read <pid>` | Read raw program state |
 | `$VW mailbox read [address]` | Read mailbox messages |
+| `$VW inbox list [--since <duration>] [--limit <n>]` | Query captured mailbox messages from event store |
+| `$VW inbox read <messageId>` | Read a specific captured message |
+| `$VW events list [--type <t>] [--since <d>] [--program <id>]` | Query captured events from event store |
+| `$VW events prune [--older-than <duration>]` | Delete old events |
 | `$VW query <pallet> <method> [args...]` | Generic storage query |
 | `$VW vft balance <token> [account] --idl <path>` | Fungible token balance |
 
@@ -84,6 +88,12 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 |---------|---------|
 | `$VW wait <messageId> [--timeout <s>]` | Wait for message reply |
 | `$VW watch <pid>` | Stream program events (NDJSON) |
+| `$VW subscribe blocks [--finalized]` | Stream new/finalized blocks (NDJSON + SQLite) |
+| `$VW subscribe messages <pid> [--type <event>]` | Stream program messages/events |
+| `$VW subscribe mailbox <address>` | Capture mailbox messages (survives between runs) |
+| `$VW subscribe balance <address>` | Stream balance changes |
+| `$VW subscribe transfers [--from <a>] [--to <a>]` | Stream transfer events |
+| `$VW subscribe program <pid>` | Stream program state changes |
 
 ### Wallet Management
 
@@ -131,6 +141,20 @@ echo $REPLY | jq .payload
 $VW watch $PROGRAM_ID | while read -r line; do
   echo "$line" | jq .
 done
+```
+
+### Subscribe to events (with persistence)
+
+```bash
+# Catch mailbox messages (they vanish after ~1 block)
+$VW subscribe mailbox $MY_ADDRESS
+
+# Wait for exactly 1 transfer, then exit (agent-friendly)
+$VW subscribe transfers --count 1 --timeout 30
+
+# Query captured events between runs
+$VW inbox list --since 1h
+$VW events list --type mailbox --limit 10
 ```
 
 ### Token operations
