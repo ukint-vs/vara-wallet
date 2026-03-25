@@ -24,6 +24,7 @@ import { registerTxCommand } from './commands/tx';
 import { registerSubscribeCommand } from './commands/subscribe';
 import { registerInboxCommand } from './commands/inbox';
 import { registerEventsCommand } from './commands/events';
+import { registerDexCommand } from './commands/dex';
 
 installGlobalErrorHandler();
 
@@ -85,6 +86,9 @@ registerTxCommand(program);
 registerSubscribeCommand(program);
 registerInboxCommand(program);
 registerEventsCommand(program);
+
+// Register commands — Phase 5: DEX
+registerDexCommand(program);
 
 // Graceful shutdown (moved from api.ts so subscribe/keepAlive can override)
 process.on('SIGINT', () => {

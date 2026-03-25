@@ -5,6 +5,7 @@ export interface VaraWalletConfig {
   wsEndpoint?: string;
   defaultAccount?: string;
   metaStorageUrl?: string;
+  dexFactoryAddress?: string;
 }
 
 function getConfigDir(): string {

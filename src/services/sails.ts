@@ -22,6 +22,9 @@ export interface SailsSetupOptions {
    *  are tried as a last resort; the validator must return true for the IDL to be accepted.
    *  Callers typically check that the required method exists in some service. */
   idlValidator?: (sails: Sails) => boolean;
+  /** Optional bundled IDL strings to try as fallback. When provided, these are used
+   *  instead of the default VFT bundled IDLs. Requires idlValidator to be set. */
+  bundledIdls?: string[];
 }
 
 /**
@@ -101,20 +104,21 @@ async function resolveIdl(
 
   // 3. Bundled IDL fallback (only when a validator is provided)
   if (options.idlValidator) {
-    verbose('Trying bundled VFT IDLs as fallback...');
-    for (const bundledIdl of BUNDLED_VFT_IDLS) {
+    const idlsToTry = options.bundledIdls ?? BUNDLED_VFT_IDLS;
+    verbose('Trying bundled IDLs as fallback...');
+    for (const bundledIdl of idlsToTry) {
       try {
         const probe = new Sails(parser);
         probe.parseIdl(bundledIdl);
         if (options.idlValidator(probe)) {
-          verbose('Using bundled VFT IDL (fallback)');
+          verbose('Using bundled IDL (fallback)');
           return bundledIdl;
         }
       } catch {
         // Parse failed for this IDL, try next
       }
     }
-    verbose('No bundled IDL matched the required methods');
+    verbose('No bundled IDLs matched the required methods');
   }
 
   // All sources exhausted
