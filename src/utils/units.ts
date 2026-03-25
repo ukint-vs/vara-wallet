@@ -55,7 +55,13 @@ export function toMinimalUnits(amount: string, decimals: number): bigint {
 
   const parts = trimmed.split('.');
   const whole = parts[0] || '0';
-  let fractional = (parts[1] || '').slice(0, decimals);
+  const rawFractional = parts[1] || '';
+
+  if (decimals === 0 && rawFractional.length > 0) {
+    throw new Error(`Invalid amount: "${amount}". Cannot have fractional digits when decimals is 0.`);
+  }
+
+  let fractional = rawFractional.slice(0, decimals);
   fractional = fractional.padEnd(decimals, '0');
 
   const multiplier = 10n ** BigInt(decimals);
