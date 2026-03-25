@@ -180,6 +180,29 @@ vara-wallet --account agent vft transfer 0xTokenProgram... <to> 1000 --idl ./vft
 vara-wallet --account agent vft approve 0xTokenProgram... <spender> 1000 --idl ./vft.idl
 ```
 
+### DEX (Decentralized Exchange) operations
+
+Trade tokens on the vara-amm DEX. Requires a factory address — set via `--factory`, `VARA_DEX_FACTORY` env, or `dexFactoryAddress` in config.
+
+```bash
+# Query available pairs
+vara-wallet dex pairs --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
+
+# Get a swap quote (check price impact before trading)
+vara-wallet dex quote 0xTOKEN_IN 0xTOKEN_OUT 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
+
+# Execute a swap (auto-approves the input token)
+vara-wallet --account agent dex swap 0xTOKEN_IN 0xTOKEN_OUT 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e --slippage 100
+
+# Add liquidity
+vara-wallet --account agent dex add-liquidity 0xTOKEN0 0xTOKEN1 1000000 1000000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
+
+# Remove liquidity (amount is LP tokens)
+vara-wallet --account agent dex remove-liquidity 0xTOKEN0 0xTOKEN1 5000 --factory 0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e
+```
+
+Slippage is in basis points (100 = 1%). Tokens are auto-sorted to match factory convention. Use `--units token` for human-readable amounts.
+
 ### Generic substrate operations
 
 For anything not covered by specific commands:
@@ -278,6 +301,8 @@ Vara uses SS58 addresses (like `kGioe8b7...`). Program IDs and message IDs are h
 |---------|----------|----------|
 | Mainnet | `wss://rpc.vara.network` (default) | https://vara.subscan.io |
 | Testnet | `wss://testnet.vara.network` | https://vara-testnet.subscan.io |
+
+**Testnet DEX (Rivr):** Factory address `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e`
 
 Switch networks:
 

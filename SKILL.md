@@ -63,6 +63,9 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW events prune [--older-than <duration>]` | Delete old events |
 | `$VW query <pallet> <method> [args...]` | Generic storage query |
 | `$VW vft balance <token> [account] --idl <path>` | Fungible token balance |
+| `$VW dex pairs --factory <addr>` | List DEX trading pairs |
+| `$VW dex pool <t0> <t1> --factory <addr>` | Pool reserves and prices |
+| `$VW dex quote <tIn> <tOut> <amount> --factory <addr>` | Swap quote with price impact |
 
 ### Write (account required — add `--account <name>`)
 
@@ -78,6 +81,9 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW call <pid> Service/Function --args '[...]' --value <v> --units vara\|raw --idl <path>` | Sails state-changing call |
 | `$VW vft transfer <token> <to> <amount> --idl <path>` | Transfer fungible tokens |
 | `$VW vft approve <token> <spender> <amount> --idl <path>` | Approve token spender |
+| `$VW dex swap <tIn> <tOut> <amount> --factory <addr> [--slippage <bps>]` | Swap tokens (auto-approves) |
+| `$VW dex add-liquidity <t0> <t1> <a0> <a1> --factory <addr>` | Add pool liquidity |
+| `$VW dex remove-liquidity <t0> <t1> <lp> --factory <addr>` | Remove pool liquidity |
 | `$VW voucher issue <spender> <value>` | Issue gas voucher |
 | `$VW voucher revoke <spender> <voucherId>` | Revoke voucher |
 | `$VW tx <pallet> <method> [args...]` | Submit generic extrinsic |

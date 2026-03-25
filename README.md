@@ -64,6 +64,7 @@ npm link
 | `VARA_PASSPHRASE` | Wallet passphrase (CI/Docker fallback) | — |
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
 | `VARA_META_STORAGE` | Meta-storage URL for IDL fetching | — |
+| `VARA_DEX_FACTORY` | DEX factory program address | — |
 
 ## Account Resolution
 
@@ -185,6 +186,23 @@ vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units raw|
 
 Use `--units token` to pass human-readable amounts (e.g., `1.5` → auto-converts using on-chain decimals). Default is `raw` (minimal units).
 
+### `dex` (DEX Trading)
+
+Trade tokens on the vara-amm decentralized exchange (Rivr DEX). Works with bundled IDLs — no `--idl` needed. Requires a factory address via `--factory`, `VARA_DEX_FACTORY` env, or `dexFactoryAddress` in config.
+
+Rivr DEX testnet factory: `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e`
+
+```bash
+vara-wallet dex pairs [--factory <addr>] [--limit <n>]
+vara-wallet dex pool <token0> <token1> [--factory <addr>]
+vara-wallet dex quote <tokenIn> <tokenOut> <amount> [--reverse] [--units raw|token]
+vara-wallet dex swap <tokenIn> <tokenOut> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve]
+vara-wallet dex add-liquidity <token0> <token1> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve]
+vara-wallet dex remove-liquidity <token0> <token1> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve]
+```
+
+Slippage is in basis points (100 = 1%, default). Swaps auto-approve input tokens unless `--skip-approve` is set. Use `--units token` to pass human-readable amounts.
+
 ### `voucher`
 
 ```bash
@@ -276,7 +294,7 @@ vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <i
 
 ```
 ~/.vara-wallet/
-  config.json          # wsEndpoint, defaultAccount, metaStorageUrl
+  config.json          # wsEndpoint, defaultAccount, metaStorageUrl, dexFactoryAddress
   .passphrase          # Auto-generated or human-provided (0600)
   events.db            # SQLite event store (subscribe/inbox/events)
   wallets/
@@ -297,6 +315,11 @@ vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <i
 | `TX_FAILED` | On-chain extrinsic failure |
 | `IDL_NOT_FOUND` | No Sails IDL available |
 | `METHOD_NOT_FOUND` | Method not in Sails IDL |
+| `DEX_FACTORY_NOT_CONFIGURED` | No factory address set |
+| `DEX_SERVICE_NOT_FOUND` | DEX method not found in IDL |
+| `PAIR_NOT_FOUND` | Trading pair doesn't exist |
+| `TOKEN_MISMATCH` | Tokens don't match pair |
+| `INVALID_SLIPPAGE` | Slippage out of range (0-5000 bps) |
 
 ## Development
 
