@@ -40,7 +40,7 @@ export async function loadSails(
   const sails = new Sails(parser);
 
   const programId = addressToHex(options.programId);
-  const idlString = await resolveIdl(api, { ...options, programId }, parser, sails);
+  const idlString = await resolveIdl(api, { ...options, programId }, parser);
   sails.parseIdl(idlString);
   sails.setApi(api);
   sails.setProgramId(programId);
@@ -51,8 +51,7 @@ export async function loadSails(
 async function resolveIdl(
   api: GearApi,
   options: SailsSetupOptions,
-  _parser: SailsIdlParser,
-  sails: Sails,
+  parser: SailsIdlParser,
 ): Promise<string> {
   // 1. Local file
   if (options.idl) {
@@ -105,8 +104,9 @@ async function resolveIdl(
     verbose('Trying bundled VFT IDLs as fallback...');
     for (const bundledIdl of BUNDLED_VFT_IDLS) {
       try {
-        sails.parseIdl(bundledIdl);
-        if (options.idlValidator(sails)) {
+        const probe = new Sails(parser);
+        probe.parseIdl(bundledIdl);
+        if (options.idlValidator(probe)) {
           verbose('Using bundled VFT IDL (fallback)');
           return bundledIdl;
         }

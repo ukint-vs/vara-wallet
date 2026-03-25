@@ -59,6 +59,16 @@ describe('toMinimalUnits', () => {
     expect(() => toMinimalUnits('1e5', 6)).toThrow('Invalid amount');
   });
 
+  it('rejects non-zero fractional input when decimals=0', () => {
+    expect(() => toMinimalUnits('1.5', 0)).toThrow('Cannot have a non-zero fractional value when decimals is 0');
+    expect(() => toMinimalUnits('0.1', 0)).toThrow('Cannot have a non-zero fractional value when decimals is 0');
+  });
+
+  it('allows zero-valued fractional parts when decimals=0', () => {
+    expect(toMinimalUnits('1.0', 0)).toBe(1n);
+    expect(toMinimalUnits('1.000', 0)).toBe(1n);
+  });
+
   it('rejects invalid decimals', () => {
     expect(() => toMinimalUnits('1', -1)).toThrow('Invalid decimals');
     expect(() => toMinimalUnits('1', 1.5)).toThrow('Invalid decimals');

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-03-25
+
+### Fixed
+- Use fresh Sails instance for bundled IDL probing to avoid mutating shared state
+- Remove unused `_parser` parameter from `resolveIdl`
+- Reject non-zero fractional input in `toMinimalUnits` when `decimals` is 0 (allows `"1.0"`)
+
 ## [0.3.1] - 2026-03-25
 
 ### Added
