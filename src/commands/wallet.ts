@@ -57,7 +57,7 @@ export function registerWalletCommand(program: Command): void {
     .action(async (options: { name: string; mnemonic?: string; seed?: string; json?: string; passphrase?: string; encrypt: boolean }, command: Command) => {
       // Merge with global opts so --seed/--mnemonic work regardless of which
       // Commander level parsed them (global program vs. subcommand).
-      const allOpts = command.optsWithGlobals();
+      const allOpts = command.optsWithGlobals() as typeof options;
       let keyring;
 
       if (allOpts.mnemonic) {
