@@ -1,5 +1,5 @@
 import { GearApi, type UserMessageSent } from '@gear-js/api';
-import { outputNdjson, verbose, CliError } from '../../utils';
+import { outputNdjson, verbose, CliError, tryHexToText } from '../../utils';
 import { insertEvent, type EventInsert } from '../../services/event-store';
 import { disconnectApi } from '../../services/api';
 
@@ -223,11 +223,14 @@ export async function withReconnect(
  */
 export function formatUserMessageSent(event: UserMessageSent): Record<string, unknown> {
   const { message } = event.data;
+  const payloadHex = message.payload.toHex();
+  const payloadAscii = tryHexToText(payloadHex);
   return {
     messageId: message.id.toHex(),
     source: message.source.toHex(),
     destination: message.destination.toHex(),
-    payload: message.payload.toHex(),
+    payload: payloadHex,
+    ...(payloadAscii !== undefined && { payloadAscii }),
     value: message.value.toString(),
     details: message.details.isSome
       ? {
