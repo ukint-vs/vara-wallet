@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, minimalToVara } from '../utils';
+import { output, verbose, minimalToVara, tryHexToText } from '../utils';
 
 export function registerMailboxCommand(program: Command): void {
   const mailbox = program.command('mailbox').description('Mailbox operations');
@@ -25,11 +25,14 @@ export function registerMailboxCommand(program: Command): void {
         const [message, interval] = item;
         const msgJson = message.toJSON() as Record<string, unknown>;
         const intervalJson = interval.toJSON() as Record<string, unknown>;
+        const payloadHex = String(msgJson.payload ?? '');
+        const payloadAscii = tryHexToText(payloadHex);
         return {
           id: msgJson.id,
           source: msgJson.source,
           destination: msgJson.destination,
-          payload: msgJson.payload,
+          payload: payloadHex,
+          ...(payloadAscii !== undefined && { payloadAscii }),
           value: String(msgJson.value ?? '0'),
           valueVara: minimalToVara(BigInt(String(msgJson.value ?? '0'))),
           start: intervalJson.start,

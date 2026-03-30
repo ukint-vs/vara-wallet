@@ -184,6 +184,26 @@ describe('formatUserMessageSent', () => {
       value: '1000',
       details: null,
     });
+    // Binary payload should NOT have payloadAscii
+    expect(result.payloadAscii).toBeUndefined();
+  });
+
+  it('includes payloadAscii for printable ASCII payloads', () => {
+    const mockEvent = {
+      data: {
+        message: {
+          id: { toHex: () => '0xabc' },
+          source: { toHex: () => '0x111' },
+          destination: { toHex: () => '0x222' },
+          payload: { toHex: () => '0x48656c6c6f' }, // "Hello"
+          value: { toString: () => '1000' },
+          details: { isSome: false },
+        },
+      },
+    };
+
+    const result = formatUserMessageSent(mockEvent as unknown as UserMessageSent);
+    expect(result.payloadAscii).toBe('Hello');
   });
 
   it('extracts reply details when present', () => {

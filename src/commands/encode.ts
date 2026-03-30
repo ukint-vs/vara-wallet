@@ -3,7 +3,7 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { loadSails } from '../services/sails';
-import { output, verbose, CliError } from '../utils';
+import { output, verbose, CliError, tryHexToText } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -88,6 +88,23 @@ export function registerEncodeCommand(program: Command): void {
       program?: string;
       method?: string;
     }) => {
+      // Standalone text decoding — no metadata or IDL required
+      if (type === 'text') {
+        const text = tryHexToText(hex);
+        if (text === undefined) {
+          // Fall back to raw UTF-8 decode even if not strict ASCII printable
+          const stripped = hex.startsWith('0x') || hex.startsWith('0X') ? hex.slice(2) : hex;
+          if (stripped.length === 0 || stripped.length % 2 !== 0) {
+            throw new CliError('Invalid hex string for text decoding', 'INVALID_HEX');
+          }
+          const raw = Buffer.from(stripped, 'hex').toString('utf-8');
+          output({ decoded: raw, note: 'Contains non-printable or non-ASCII characters' });
+          return;
+        }
+        output({ decoded: text });
+        return;
+      }
+
       if (options.idl && options.method) {
         const opts = program.optsWithGlobals() as { ws?: string };
         const api = await getApi(opts.ws);
