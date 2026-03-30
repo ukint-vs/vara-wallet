@@ -3,9 +3,52 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
-import { executeTx } from '../services/tx-executor';
+import { executeTx, TxEvent } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, resolvePayload, tryHexToText } from '../utils';
+
+/**
+ * Extract messageId from transaction events using multi-pattern fallback.
+ *
+ * Event data from toJSON() can be array or object depending on codec version:
+ *   MessageQueued:    array → data[0],          object → data.id
+ *   UserMessageSent:  array → data[0].id,       object → data.message?.id
+ */
+export function extractMessageId(events: TxEvent[]): string | null {
+  // Try MessageQueued first (program destinations)
+  const mqEvent = events.find(
+    (e) => e.section === 'gear' && e.method === 'MessageQueued',
+  );
+  if (mqEvent?.data != null) {
+    const d = mqEvent.data as Record<string, unknown>;
+    // Array shape: [messageId, source, destination, entry]
+    if (Array.isArray(d)) {
+      if (typeof d[0] === 'string') return d[0];
+    }
+    // Object shape: { id, source, destination, entry }
+    if (typeof d.id === 'string') return d.id;
+  }
+
+  // Fall back to UserMessageSent (user destinations)
+  const umsEvent = events.find(
+    (e) => e.section === 'gear' && e.method === 'UserMessageSent',
+  );
+  if (umsEvent?.data != null) {
+    const d = umsEvent.data as Record<string, unknown>;
+    // Array shape: [{ id, source, destination, payload, value, details }, expiration]
+    if (Array.isArray(d) && d[0] && typeof d[0] === 'object') {
+      const msg = d[0] as Record<string, unknown>;
+      if (typeof msg.id === 'string') return msg.id;
+    }
+    // Object shape: { message: { id, ... }, expiration }
+    if (d.message && typeof d.message === 'object') {
+      const msg = d.message as Record<string, unknown>;
+      if (typeof msg.id === 'string') return msg.id;
+    }
+  }
+
+  return null;
+}
 
 export function registerMessageCommand(program: Command): void {
   const message = program.command('message').description('Low-level message operations');
@@ -15,6 +58,7 @@ export function registerMessageCommand(program: Command): void {
     .description('Send a message to any on-chain actor (program, user, wallet)')
     .argument('<destination>', 'destination address or program ID (hex or SS58)')
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
+    .option('--payload-ascii <text>', 'message payload as plain text (converted to hex)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with message (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
@@ -22,6 +66,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (destination: string, options: {
       payload: string;
+      payloadAscii?: string;
       gasLimit?: string;
       value: string;
       units?: string;
@@ -41,7 +86,7 @@ export function registerMessageCommand(program: Command): void {
       }
 
       const destinationHex = addressToHex(destination);
-      const payload = options.payload;
+      const payload = resolvePayload(options.payload, options.payloadAscii);
 
       // Auto-calculate gas if not provided
       let gasLimit: bigint;
@@ -86,20 +131,13 @@ export function registerMessageCommand(program: Command): void {
         : tx;
 
       const result = await executeTx(api, finalTx, account);
-
-      // Extract message ID from MessageQueued event
-      // Event data is an array: [messageId, source, destination, entry]
-      const mqEvent = result.events.find(
-        (e) => e.section === 'gear' && e.method === 'MessageQueued',
-      );
-      const mqData = mqEvent?.data;
-      const messageId = Array.isArray(mqData) ? mqData[0] : undefined;
+      const messageId = extractMessageId(result.events);
 
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
         blockNumber: result.blockNumber,
-        messageId: messageId || null,
+        messageId,
         voucherId: options.voucher ?? null,
         events: result.events,
       });
@@ -110,6 +148,7 @@ export function registerMessageCommand(program: Command): void {
     .description('Send a reply to a message in mailbox')
     .argument('<messageId>', 'message ID to reply to (0x...)')
     .option('--payload <payload>', 'reply payload (hex 0x... or JSON string)', '0x')
+    .option('--payload-ascii <text>', 'reply payload as plain text (converted to hex)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with reply (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
@@ -117,6 +156,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (messageId: string, options: {
       payload: string;
+      payloadAscii?: string;
       gasLimit?: string;
       value: string;
       units?: string;
@@ -135,7 +175,7 @@ export function registerMessageCommand(program: Command): void {
         meta = ProgramMetadata.from(metaHex);
       }
 
-      const payload = options.payload;
+      const payload = resolvePayload(options.payload, options.payloadAscii);
 
       let gasLimit: bigint;
       if (options.gasLimit) {
@@ -189,12 +229,14 @@ export function registerMessageCommand(program: Command): void {
     .description('Calculate reply from a program without sending a transaction')
     .argument('<programId>', 'destination program ID (hex or SS58)')
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
+    .option('--payload-ascii <text>', 'message payload as plain text (converted to hex)')
     .option('--value <value>', 'value to simulate (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--origin <address>', 'origin address for the calculation (hex or SS58)')
     .option('--at <blockHash>', 'block hash to query state at')
     .action(async (programId: string, options: {
       payload: string;
+      payloadAscii?: string;
       value: string;
       units?: string;
       origin?: string;
@@ -222,18 +264,23 @@ export function registerMessageCommand(program: Command): void {
       }
 
       const programIdHex = addressToHex(programId);
+      const payload = resolvePayload(options.payload, options.payloadAscii);
       verbose(`Calculating reply from ${programIdHex}`);
 
       const replyInfo = await api.message.calculateReply({
         origin,
         destination: programIdHex,
-        payload: options.payload,
+        payload,
         value,
         at: options.at as `0x${string}` | undefined,
       });
 
+      const replyPayloadHex = replyInfo.payload.toHex();
+      const payloadAscii = tryHexToText(replyPayloadHex);
+
       output({
-        payload: replyInfo.payload.toHex(),
+        payload: replyPayloadHex,
+        ...(payloadAscii !== undefined && { payloadAscii }),
         value: minimalToVara(replyInfo.value.toBigInt()),
         valueRaw: replyInfo.value.toString(),
         code: replyInfo.code.toString(),

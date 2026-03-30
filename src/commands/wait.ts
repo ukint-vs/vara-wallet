@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
-import { output, verbose, CliError, minimalToVara } from '../utils';
+import { output, verbose, CliError, minimalToVara, tryHexToText } from '../utils';
 
 const DEFAULT_TIMEOUT_S = 30;
 
@@ -41,11 +41,14 @@ export function registerWaitCommand(program: Command): void {
                   settled = true;
                   clearTimeout(timer);
                   unsubscribe?.();
+                  const payloadHex = data.message.payload.toHex();
+                  const payloadAscii = tryHexToText(payloadHex);
                   resolve({
                     messageId: data.message.id.toHex(),
                     source: data.message.source.toHex(),
                     destination: data.message.destination.toHex(),
-                    payload: data.message.payload.toHex(),
+                    payload: payloadHex,
+                    ...(payloadAscii !== undefined && { payloadAscii }),
                     value: minimalToVara(data.message.value.toBigInt()),
                     replyTo: messageId,
                     replyCode: replyDetails.code.toString(),
