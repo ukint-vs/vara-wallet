@@ -7,6 +7,7 @@ import { resolveAccount, AccountOptions } from '../services/account';
 import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
+import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex } from '../utils';
 import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
@@ -370,12 +371,23 @@ async function executeDexTx(
   args: any[],
   account: KeyringPair,
   extraOutput?: Record<string, unknown>,
+  voucher?: string,
+  programId?: string,
 ): Promise<void> {
+  if (voucher) {
+    const accountHex = addressToHex(account.address);
+    await validateVoucher(api, accountHex, voucher, programId);
+  }
+
   const func = sails.services[serviceName].functions[methodName];
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);
   await txBuilder.calculateGas();
+
+  if (voucher) {
+    txBuilder.withVoucher(voucher as `0x${string}`);
+  }
 
   const result = await txBuilder.signAndSend();
   const response = await result.response();
@@ -386,6 +398,7 @@ async function executeDexTx(
     blockHash: result.blockHash,
     blockNumber,
     messageId: result.msgId,
+    voucherId: voucher ?? null,
     result: response,
     ...extraOutput,
   });
@@ -433,6 +446,7 @@ interface DexGlobalOptions {
   slippage?: string;
   deadline?: string;
   skipApprove?: boolean;
+  voucher?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -658,9 +672,10 @@ export function registerDexCommand(program: Command): void {
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--exact-out', 'treat amount as exact output (swap tokens for exact tokens)')
     .option('--skip-approve', 'skip automatic token approval')
+    .option('--voucher <id>', 'voucher ID to pay for the swap')
     .action(async (tokenIn: string, tokenOut: string, amount: string, options: {
       factory?: string; idl?: string; units?: string; slippage?: string;
-      deadline?: string; exactOut?: boolean; skipApprove?: boolean;
+      deadline?: string; exactOut?: boolean; skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
       const api = await getApi(opts.ws);
@@ -714,7 +729,7 @@ export function registerDexCommand(program: Command): void {
         ], account, {
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
-        });
+        }, options.voucher ?? opts.voucher, pairAddress);
       } else {
         // Swap exact tokens for tokens
         const amountIn = await resolveTokenAmount(api, inputToken, amount, units);
@@ -743,7 +758,7 @@ export function registerDexCommand(program: Command): void {
         ], account, {
           priceImpactPct,
           ...(parseFloat(priceImpactPct) > 5 ? { priceImpactWarning: 'High price impact exceeds 5%' } : {}),
-        });
+        }, options.voucher ?? opts.voucher, pairAddress);
       }
     });
 
@@ -761,9 +776,10 @@ export function registerDexCommand(program: Command): void {
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--skip-approve', 'skip automatic token approval')
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (token0: string, token1: string, amount0: string, amount1: string, options: {
       factory?: string; idl?: string; units?: string; slippage?: string;
-      deadline?: string; skipApprove?: boolean;
+      deadline?: string; skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
       const api = await getApi(opts.ws);
@@ -841,7 +857,7 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'AddLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'AddLiquidity', [
         amountA, amountB, amountAMin, amountBMin, deadline,
-      ], account);
+      ], account, undefined, options.voucher ?? opts.voucher, pairAddress);
     });
 
   // ── dex remove-liquidity ──────────────────────────────────────────────
@@ -857,9 +873,10 @@ export function registerDexCommand(program: Command): void {
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--skip-approve', 'skip automatic token approval')
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (token0: string, token1: string, liquidity: string, options: {
       factory?: string; idl?: string; units?: string; slippage?: string; deadline?: string;
-      skipApprove?: boolean;
+      skipApprove?: boolean; voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & DexGlobalOptions;
       const api = await getApi(opts.ws);
@@ -897,6 +914,6 @@ export function registerDexCommand(program: Command): void {
       const liquidityService = findDexService(pairSails, 'RemoveLiquidity');
       await executeDexTx(api, pairSails, liquidityService, 'RemoveLiquidity', [
         lpAmount, amountAMin, amountBMin, deadline,
-      ], account);
+      ], account, undefined, options.voucher ?? opts.voucher, pairAddress);
     });
 }

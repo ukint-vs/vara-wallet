@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
+import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerMessageCommand(program: Command): void {
@@ -18,12 +19,14 @@ export function registerMessageCommand(program: Command): void {
     .option('--value <value>', 'value to send with message (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
+    .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (destination: string, options: {
       payload: string;
       gasLimit?: string;
       value: string;
       units?: string;
       metadata?: string;
+      voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -64,6 +67,11 @@ export function registerMessageCommand(program: Command): void {
         }
       }
 
+      if (options.voucher) {
+        const sourceHex = addressToHex(account.address);
+        await validateVoucher(api, sourceHex, options.voucher, destinationHex);
+      }
+
       verbose(`Sending message to ${destinationHex}`);
 
       const tx = api.message.send({
@@ -73,7 +81,11 @@ export function registerMessageCommand(program: Command): void {
         value,
       }, meta);
 
-      const result = await executeTx(api, tx, account);
+      const finalTx = options.voucher
+        ? api.voucher.call(options.voucher, { SendMessage: tx })
+        : tx;
+
+      const result = await executeTx(api, finalTx, account);
 
       // Extract message ID from MessageQueued event
       // Event data is an array: [messageId, source, destination, entry]
@@ -88,6 +100,7 @@ export function registerMessageCommand(program: Command): void {
         blockHash: result.blockHash,
         blockNumber: result.blockNumber,
         messageId: messageId || null,
+        voucherId: options.voucher ?? null,
         events: result.events,
       });
     });
@@ -101,12 +114,14 @@ export function registerMessageCommand(program: Command): void {
     .option('--value <value>', 'value to send with reply (in VARA)', '0')
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
+    .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (messageId: string, options: {
       payload: string;
       gasLimit?: string;
       value: string;
       units?: string;
       metadata?: string;
+      voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -140,6 +155,11 @@ export function registerMessageCommand(program: Command): void {
         verbose(`Gas limit: ${gasLimit}`);
       }
 
+      if (options.voucher) {
+        const sourceHex = addressToHex(account.address);
+        await validateVoucher(api, sourceHex, options.voucher);
+      }
+
       verbose(`Sending reply to ${messageId}`);
 
       const tx = await api.message.sendReply({
@@ -149,12 +169,17 @@ export function registerMessageCommand(program: Command): void {
         value,
       }, meta);
 
-      const result = await executeTx(api, tx, account);
+      const finalTx = options.voucher
+        ? api.voucher.call(options.voucher, { SendReply: tx })
+        : tx;
+
+      const result = await executeTx(api, finalTx, account);
 
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
         blockNumber: result.blockNumber,
+        voucherId: options.voucher ?? null,
         events: result.events,
       });
     });

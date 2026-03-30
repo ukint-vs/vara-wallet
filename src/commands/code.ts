@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError } from '../utils';
+import { validateVoucher } from '../services/voucher-validator';
+import { output, verbose, CliError, addressToHex } from '../utils';
 
 export function registerCodeCommand(program: Command): void {
   const code = program.command('code').description('Code operations');
@@ -12,7 +13,8 @@ export function registerCodeCommand(program: Command): void {
     .command('upload')
     .description('Upload code (WASM) to the chain')
     .argument('<wasm>', 'path to .wasm file')
-    .action(async (wasmPath: string) => {
+    .option('--voucher <id>', 'voucher ID to pay for code upload')
+    .action(async (wasmPath: string, options: { voucher?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
@@ -21,15 +23,26 @@ export function registerCodeCommand(program: Command): void {
         throw new CliError(`WASM file not found: ${wasmPath}`, 'FILE_NOT_FOUND');
       }
 
+      if (options.voucher) {
+        const accountHex = addressToHex(account.address);
+        await validateVoucher(api, accountHex, options.voucher);
+      }
+
       const wasmBytes = fs.readFileSync(wasmPath);
 
       verbose('Uploading code...');
 
       const { codeHash, extrinsic } = await api.code.upload(wasmBytes);
-      const txResult = await executeTx(api, extrinsic, account);
+
+      const finalTx = options.voucher
+        ? api.voucher.call(options.voucher, { UploadCode: extrinsic })
+        : extrinsic;
+
+      const txResult = await executeTx(api, finalTx, account);
 
       output({
         codeId: codeHash,
+        voucherId: options.voucher ?? null,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
         blockNumber: txResult.blockNumber,

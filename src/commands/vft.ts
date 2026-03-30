@@ -6,7 +6,8 @@ import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits } from '../utils';
+import { validateVoucher } from '../services/voucher-validator';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -134,12 +135,23 @@ async function executeVftTx(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args: any[],
   account: KeyringPair,
+  voucher?: string,
+  programId?: string,
 ): Promise<void> {
+  if (voucher) {
+    const accountHex = addressToHex(account.address);
+    await validateVoucher(api, accountHex, voucher, programId);
+  }
+
   const func = sails.services[serviceName].functions[methodName];
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);
   await txBuilder.calculateGas();
+
+  if (voucher) {
+    txBuilder.withVoucher(voucher as `0x${string}`);
+  }
 
   const result = await txBuilder.signAndSend();
   const response = await result.response();
@@ -150,6 +162,7 @@ async function executeVftTx(
     blockHash: result.blockHash,
     blockNumber,
     messageId: result.msgId,
+    voucherId: voucher ?? null,
     result: response,
   });
 }
@@ -178,6 +191,7 @@ async function queryTokenField(sails: Sails, fieldName: string): Promise<unknown
 interface VftTxOptions {
   idl?: string;
   units?: string;
+  voucher?: string;
 }
 
 export function registerVftCommand(program: Command): void {
@@ -325,6 +339,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<amount>', 'amount to transfer')
     .option('--idl <path>', 'path to local IDL file')
     .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -339,7 +354,7 @@ export function registerVftCommand(program: Command): void {
       const resolvedAmount = await resolveVftAmount(sails, serviceName, amount, options.units);
 
       verbose(`Transferring ${resolvedAmount} tokens to ${to}`);
-      await executeVftTx(api, sails, serviceName, 'Transfer', [to, resolvedAmount], account);
+      await executeVftTx(api, sails, serviceName, 'Transfer', [to, resolvedAmount], account, options.voucher, tokenProgram);
     });
 
   // ── vft approve ───────────────────────────────────────────────────────
@@ -351,6 +366,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<amount>', 'amount to approve')
     .option('--idl <path>', 'path to local IDL file')
     .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, spender: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -365,7 +381,7 @@ export function registerVftCommand(program: Command): void {
       const resolvedAmount = await resolveVftAmount(sails, serviceName, amount, options.units);
 
       verbose(`Approving ${resolvedAmount} tokens for ${spender}`);
-      await executeVftTx(api, sails, serviceName, 'Approve', [spender, resolvedAmount], account);
+      await executeVftTx(api, sails, serviceName, 'Approve', [spender, resolvedAmount], account, options.voucher, tokenProgram);
     });
 
   // ── vft transfer-from ─────────────────────────────────────────────────
@@ -378,6 +394,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<amount>', 'amount to transfer')
     .option('--idl <path>', 'path to local IDL file')
     .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, from: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -392,7 +409,7 @@ export function registerVftCommand(program: Command): void {
       const resolvedAmount = await resolveVftAmount(sails, serviceName, amount, options.units);
 
       verbose(`Transferring ${resolvedAmount} tokens from ${from} to ${to}`);
-      await executeVftTx(api, sails, serviceName, 'TransferFrom', [from, to, resolvedAmount], account);
+      await executeVftTx(api, sails, serviceName, 'TransferFrom', [from, to, resolvedAmount], account, options.voucher, tokenProgram);
     });
 
   // ── vft mint ──────────────────────────────────────────────────────────
@@ -404,6 +421,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<amount>', 'amount to mint')
     .option('--idl <path>', 'path to local IDL file')
     .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -418,7 +436,7 @@ export function registerVftCommand(program: Command): void {
       const resolvedAmount = await resolveVftAmount(sails, serviceName, amount, options.units);
 
       verbose(`Minting ${resolvedAmount} tokens to ${to}`);
-      await executeVftTx(api, sails, serviceName, 'Mint', [to, resolvedAmount], account);
+      await executeVftTx(api, sails, serviceName, 'Mint', [to, resolvedAmount], account, options.voucher, tokenProgram);
     });
 
   // ── vft burn ──────────────────────────────────────────────────────────
@@ -430,6 +448,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<amount>', 'amount to burn')
     .option('--idl <path>', 'path to local IDL file')
     .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, from: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -444,6 +463,6 @@ export function registerVftCommand(program: Command): void {
       const resolvedAmount = await resolveVftAmount(sails, serviceName, amount, options.units);
 
       verbose(`Burning ${resolvedAmount} tokens from ${from}`);
-      await executeVftTx(api, sails, serviceName, 'Burn', [from, resolvedAmount], account);
+      await executeVftTx(api, sails, serviceName, 'Burn', [from, resolvedAmount], account, options.voucher, tokenProgram);
     });
 }
