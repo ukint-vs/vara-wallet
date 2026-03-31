@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-03-31
+
+### Added
+- `faucet` command: request testnet TVARA tokens with challenge-sign-claim flow that proves address ownership
+- Faucet defaults to testnet RPC (`wss://testnet.vara.network`) so no `--ws` flag needed
+- Configurable faucet URL via `--faucet-url`, `VARA_FAUCET_URL` env var, or `config.faucetUrl`
+- Balance pre-check skips request if account already has >= 1000 TVARA
+
 ## [0.6.0] - 2026-03-31
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "vara-wallet",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Agentic wallet CLI for Vara Network — designed for AI coding agents",
   "main": "dist/app.js",
   "bin": {
