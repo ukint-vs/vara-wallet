@@ -129,12 +129,12 @@ vara-wallet transfer <to> <amount> [--units vara|raw]
 ### `message`
 
 ```bash
-vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
-vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>]
+vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>] [--voucher <id>]
+vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>] [--voucher <id>]
 vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units vara|raw] [--origin <addr>] [--at <blockHash>]
 ```
 
-Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor (program, user, wallet). Use `--value` to transfer VARA tokens alongside a message.
+Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor (program, user, wallet). Use `--value` to transfer VARA tokens alongside a message. Use `--voucher <id>` to pay for the message using a voucher instead of the sender's balance.
 
 ### `program`
 
@@ -148,7 +148,7 @@ vara-wallet program list [--count <n>]
 ### `code`
 
 ```bash
-vara-wallet code upload <wasm>
+vara-wallet code upload <wasm> [--voucher <id>]
 vara-wallet code info <codeId>
 vara-wallet code list [--count <n>]
 ```
@@ -158,7 +158,7 @@ vara-wallet code list [--count <n>]
 High-level method invocation on Sails programs. Auto-detects queries vs functions.
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>]
+vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>]
 ```
 
 ### `discover` (Sails)
@@ -177,11 +177,11 @@ Works out of the box with standard VFT programs — no `--idl` needed (bundled I
 vara-wallet vft info <tokenProgram> [--idl <path>]
 vara-wallet vft balance <tokenProgram> [account] [--idl <path>]
 vara-wallet vft allowance <tokenProgram> <owner> <spender> [--idl <path>]
-vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token]
-vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units raw|token]
-vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units raw|token]
-vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token]
-vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units raw|token]
+vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
+vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
+vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
+vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
+vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
 ```
 
 Use `--units token` to pass human-readable amounts (e.g., `1.5` → auto-converts using on-chain decimals). Default is `raw` (minimal units).
@@ -196,9 +196,9 @@ Rivr DEX testnet factory: `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114
 vara-wallet dex pairs [--factory <addr>] [--limit <n>]
 vara-wallet dex pool <token0> <token1> [--factory <addr>]
 vara-wallet dex quote <tokenIn> <tokenOut> <amount> [--reverse] [--units raw|token]
-vara-wallet dex swap <tokenIn> <tokenOut> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve]
-vara-wallet dex add-liquidity <token0> <token1> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve]
-vara-wallet dex remove-liquidity <token0> <token1> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve]
+vara-wallet dex swap <tokenIn> <tokenOut> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve] [--voucher <id>]
+vara-wallet dex add-liquidity <token0> <token1> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
+vara-wallet dex remove-liquidity <token0> <token1> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
 ```
 
 Slippage is in basis points (100 = 1%, default). Swaps auto-approve input tokens unless `--skip-approve` is set. Use `--units token` to pass human-readable amounts.

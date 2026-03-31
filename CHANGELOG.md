@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-03-31
+
+### Added
+- `--voucher <id>` flag on write commands: `call`, `message send`, `message reply`, `vft transfer/approve/transfer-from/mint/burn`, `dex swap/add-liquidity/remove-liquidity`, and `code upload`
+- Preflight voucher validation checks format, existence, and program restrictions before submitting transactions
+- Clear error when `--voucher` is used with query methods (read-only calls don't use vouchers)
+- Voucher ID included in JSON output (`voucherId` field) when a voucher is used
+- 8 new unit tests for voucher validation (format, program mismatch, unrestricted vouchers)
+
 ## [0.5.1] - 2026-03-27
 
 ### Fixed

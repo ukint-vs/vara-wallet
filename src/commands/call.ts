@@ -3,7 +3,8 @@ import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSails, describeSailsProgram } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, minimalToVara } from '../utils';
+import { validateVoucher } from '../services/voucher-validator';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -16,12 +17,14 @@ export function registerCallCommand(program: Command): void {
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--gas-limit <gas>', 'gas limit override (functions only)')
     .option('--idl <path>', 'path to local IDL file')
+    .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (programId: string, method: string, options: {
       args: string;
       value: string;
       units?: string;
       gasLimit?: string;
       idl?: string;
+      voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -79,9 +82,15 @@ export function registerCallCommand(program: Command): void {
       }
 
       if (isQuery) {
+        if (options.voucher) {
+          throw new CliError(
+            '--voucher cannot be used with query methods',
+            'VOUCHER_ON_QUERY',
+          );
+        }
         await executeQuery(api, sails, serviceName, methodName, args, opts);
       } else {
-        await executeFunction(api, sails, serviceName, methodName, args, options, opts);
+        await executeFunction(api, sails, serviceName, methodName, args, options, opts, programId);
       }
     });
 }
@@ -118,14 +127,20 @@ async function executeFunction(
   serviceName: string,
   methodName: string,
   args: unknown[],
-  options: { value: string; units?: string; gasLimit?: string },
+  options: { value: string; units?: string; gasLimit?: string; voucher?: string },
   opts: AccountOptions & { ws?: string },
+  programId: string,
 ): Promise<void> {
   verbose(`Executing function: ${serviceName}/${methodName}`);
 
   const account = await resolveAccount(opts);
   const isRaw = options.units === 'raw';
   const value = resolveAmount(options.value, isRaw);
+
+  if (options.voucher) {
+    const accountHex = addressToHex(account.address);
+    await validateVoucher(api, accountHex, options.voucher, programId);
+  }
 
   const func = sails.services[serviceName].functions[methodName];
   const txBuilder = func(...args);
@@ -144,6 +159,10 @@ async function executeFunction(
     verbose(`Gas: ${txBuilder.gasInfo?.min_limit?.toString() || 'calculated'}`);
   }
 
+  if (options.voucher) {
+    txBuilder.withVoucher(options.voucher as `0x${string}`);
+  }
+
   const result = await txBuilder.signAndSend();
   const response = await result.response();
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
@@ -153,6 +172,7 @@ async function executeFunction(
     blockHash: result.blockHash,
     blockNumber,
     messageId: result.msgId,
+    voucherId: options.voucher ?? null,
     result: response,
   });
 }

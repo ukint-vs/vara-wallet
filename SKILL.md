@@ -86,6 +86,7 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW dex remove-liquidity <t0> <t1> <lp> --factory <addr>` | Remove pool liquidity |
 | `$VW voucher issue <spender> <value>` | Issue gas voucher |
 | `$VW voucher revoke <spender> <voucherId>` | Revoke voucher |
+| Any write command with `--voucher <id>` | Use voucher for sponsored execution |
 | `$VW tx <pallet> <method> [args...]` | Submit generic extrinsic |
 
 ### Monitor
@@ -180,6 +181,19 @@ $VW --account agent vft approve $TOKEN_PROGRAM $SPENDER 1000 --idl ./vft.idl
 
 ```bash
 $VW --account sponsor voucher issue $SPENDER_ADDRESS 100 --duration 14400
+```
+
+### Use a voucher for sponsored execution
+
+```bash
+# Use a voucher to pay for a Sails function call
+$VW call $PROGRAM Counter/Increment --voucher $VOUCHER_ID
+
+# Use a voucher to send a message
+$VW message send $PROGRAM --payload 0x... --voucher $VOUCHER_ID
+
+# Use a voucher for a VFT transfer
+$VW vft transfer $TOKEN $TO 1000 --voucher $VOUCHER_ID
 ```
 
 ## IDL Resolution
