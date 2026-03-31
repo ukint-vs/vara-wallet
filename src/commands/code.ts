@@ -25,7 +25,7 @@ export function registerCodeCommand(program: Command): void {
 
       if (options.voucher) {
         const accountHex = addressToHex(account.address);
-        await validateVoucher(api, accountHex, options.voucher);
+        await validateVoucher(api, accountHex, options.voucher, undefined, { requireCodeUploading: true });
       }
 
       const wasmBytes = fs.readFileSync(wasmPath);

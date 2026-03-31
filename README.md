@@ -139,8 +139,8 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--voucher <id>]
-vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--voucher <id>]
+vara-wallet program upload <wasm> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program deploy <codeId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>]
 ```

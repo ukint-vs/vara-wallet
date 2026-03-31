@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
-import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, addressToHex } from '../utils';
 
 export function registerProgramCommand(program: Command): void {
@@ -20,7 +19,6 @@ export function registerProgramCommand(program: Command): void {
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
     .option('--metadata <path>', 'path to .meta.txt file')
-    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (wasmPath: string, options: {
       payload: string;
       gasLimit?: string;
@@ -28,7 +26,6 @@ export function registerProgramCommand(program: Command): void {
       units?: string;
       salt?: string;
       metadata?: string;
-      voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -65,11 +62,6 @@ export function registerProgramCommand(program: Command): void {
         verbose(`Gas limit: ${gasLimit}`);
       }
 
-      if (options.voucher) {
-        const accountHex = addressToHex(account.address);
-        await validateVoucher(api, accountHex, options.voucher);
-      }
-
       verbose('Uploading program...');
 
       const uploadResult = api.program.upload({
@@ -80,17 +72,12 @@ export function registerProgramCommand(program: Command): void {
         salt: options.salt as `0x${string}` | undefined,
       }, meta);
 
-      const finalTx = options.voucher
-        ? api.voucher.call(options.voucher, { SendMessage: uploadResult.extrinsic })
-        : uploadResult.extrinsic;
-
-      const txResult = await executeTx(api, finalTx, account);
+      const txResult = await executeTx(api, uploadResult.extrinsic, account);
 
       output({
         programId: uploadResult.programId,
         codeId: uploadResult.codeId,
         salt: uploadResult.salt,
-        voucherId: options.voucher ?? null,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
         blockNumber: txResult.blockNumber,
@@ -108,7 +95,6 @@ export function registerProgramCommand(program: Command): void {
     .option('--units <units>', 'amount units: vara (default) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
     .option('--metadata <path>', 'path to .meta.txt file')
-    .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (codeId: string, options: {
       payload: string;
       gasLimit?: string;
@@ -116,7 +102,6 @@ export function registerProgramCommand(program: Command): void {
       units?: string;
       salt?: string;
       metadata?: string;
-      voucher?: string;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -147,11 +132,6 @@ export function registerProgramCommand(program: Command): void {
         verbose(`Gas limit: ${gasLimit}`);
       }
 
-      if (options.voucher) {
-        const accountHex = addressToHex(account.address);
-        await validateVoucher(api, accountHex, options.voucher);
-      }
-
       verbose('Creating program...');
 
       const createResult = api.program.create({
@@ -162,16 +142,11 @@ export function registerProgramCommand(program: Command): void {
         salt: options.salt as `0x${string}` | undefined,
       }, meta);
 
-      const finalTx = options.voucher
-        ? api.voucher.call(options.voucher, { SendMessage: createResult.extrinsic })
-        : createResult.extrinsic;
-
-      const txResult = await executeTx(api, finalTx, account);
+      const txResult = await executeTx(api, createResult.extrinsic, account);
 
       output({
         programId: createResult.programId,
         salt: createResult.salt,
-        voucherId: options.voucher ?? null,
         txHash: txResult.txHash,
         blockHash: txResult.blockHash,
         blockNumber: txResult.blockNumber,
