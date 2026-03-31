@@ -24,11 +24,14 @@ export async function validateVoucher(
   try {
     const details = await api.voucher.getDetails(accountHex, voucherId);
 
-    if (programId && details.programs && !details.programs.includes(programId)) {
-      throw new CliError(
-        `Voucher is not valid for program ${programId}`,
-        'VOUCHER_PROGRAM_MISMATCH',
-      );
+    if (programId && details.programs) {
+      const normalizedPrograms = details.programs.map((p: string) => p.toLowerCase());
+      if (!normalizedPrograms.includes(programId.toLowerCase())) {
+        throw new CliError(
+          `Voucher is not valid for program ${programId}`,
+          'VOUCHER_PROGRAM_MISMATCH',
+        );
+      }
     }
 
     // Check expiry against current block
@@ -58,8 +61,10 @@ export async function validateVoucher(
     }
   } catch (e) {
     if (e instanceof CliError) throw e;
+    const detail = e instanceof Error ? `: ${e.message}` : '';
+    verbose(`Voucher validation failed${detail}`);
     throw new CliError(
-      'Voucher not found or not valid for this account',
+      `Voucher not found or not valid for this account${detail}`,
       'VOUCHER_NOT_FOUND',
     );
   }
