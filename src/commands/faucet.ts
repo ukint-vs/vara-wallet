@@ -3,7 +3,7 @@ import { u8aToHex, stringToU8a } from '@polkadot/util';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { readConfig } from '../services/config';
-import { output, verbose, CliError, minimalToVara } from '../utils';
+import { output, verbose, CliError, minimalToVara, varaToMinimal } from '../utils';
 
 const DEFAULT_FAUCET_URL = 'https://idea.gear-tech.io/faucet';
 const DEFAULT_TESTNET_WS = 'wss://testnet.vara.network';
@@ -49,9 +49,10 @@ export function registerFaucetCommand(program: Command): void {
       verbose(`Using faucet at ${faucetUrl}`);
 
       // Check current balance
-      const balance = await api.balance.findOut(resolvedAddress);
-      const balanceVara = minimalToVara(balance.toBigInt());
-      if (parseFloat(balanceVara) >= parseFloat(MIN_BALANCE_TVARA)) {
+      const balanceBigInt = (await api.balance.findOut(resolvedAddress)).toBigInt();
+      const minBalance = varaToMinimal(MIN_BALANCE_TVARA);
+      if (balanceBigInt >= minBalance) {
+        const balanceVara = minimalToVara(balanceBigInt);
         output({
           status: 'already_funded',
           address: resolvedAddress,
@@ -61,7 +62,7 @@ export function registerFaucetCommand(program: Command): void {
         return;
       }
 
-      verbose(`Current balance: ${balanceVara} TVARA, requesting tokens...`);
+      verbose(`Current balance: ${minimalToVara(balanceBigInt)} TVARA, requesting tokens...`);
 
       // Step 1: Get challenge nonce
       verbose('Requesting challenge nonce...');
@@ -78,6 +79,9 @@ export function registerFaucetCommand(program: Command): void {
       }
 
       const { nonce } = (await challengeRes.json()) as { nonce: string };
+      if (!nonce) {
+        throw new CliError('Invalid response from faucet: missing challenge nonce', 'FAUCET_ERROR');
+      }
       verbose(`Got challenge nonce: ${nonce.slice(0, 10)}...`);
 
       // Step 2: Sign the nonce
