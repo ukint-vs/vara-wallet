@@ -110,7 +110,9 @@ describe('faucet command', () => {
     );
 
     const program = createProgram();
-    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(CliError);
+    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(
+      expect.objectContaining({ code: 'AUTH_ERROR' }),
+    );
   });
 
   it('should throw FAUCET_LIMIT on 403 from claim', async () => {
@@ -120,7 +122,9 @@ describe('faucet command', () => {
     );
 
     const program = createProgram();
-    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(CliError);
+    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(
+      expect.objectContaining({ code: 'FAUCET_LIMIT' }),
+    );
   });
 
   it('should throw RATE_LIMITED on 429 from claim', async () => {
@@ -130,7 +134,9 @@ describe('faucet command', () => {
     );
 
     const program = createProgram();
-    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(CliError);
+    await expect(program.parseAsync(['node', 'test', 'faucet', '--json'])).rejects.toThrow(
+      expect.objectContaining({ code: 'RATE_LIMITED' }),
+    );
   });
 
   it('should throw CONNECTION_FAILED on network error', async () => {
