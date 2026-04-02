@@ -87,7 +87,7 @@ export function registerProgramCommand(program: Command): void {
 
   prog
     .command('upload')
-    .description('Upload a program from WASM file')
+    .description('Upload a program from WASM file. For Sails programs, use --idl with --init and --args to auto-encode the constructor payload')
     .argument('<wasm>', 'path to .wasm file')
     .option('--payload <payload>', 'init payload (hex or JSON)', '0x')
     .option('--idl <path>', 'path to Sails IDL file (auto-encodes constructor payload)')
@@ -281,14 +281,15 @@ export function registerProgramCommand(program: Command): void {
   prog
     .command('list')
     .description('List all uploaded programs')
-    .option('--count <count>', 'number of programs to list')
-    .action(async (options: { count?: string }) => {
+    .option('--count <count>', 'number of programs to list (default: 100)')
+    .option('--all', 'list all programs without limit')
+    .action(async (options: { count?: string; all?: boolean }) => {
       const opts = program.optsWithGlobals() as { ws?: string };
       const api = await getApi(opts.ws);
 
       verbose('Fetching program list...');
 
-      const count = options.count ? parseInt(options.count, 10) : undefined;
+      const count = options.all ? undefined : (options.count ? parseInt(options.count, 10) : 100);
       const programs = await api.program.allUploadedPrograms(count);
 
       output(programs);

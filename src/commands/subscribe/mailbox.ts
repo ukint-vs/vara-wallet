@@ -8,6 +8,7 @@ import {
   emitAndPersist,
   safeCallback,
   installEpipeHandler,
+  installGlobalTimeout,
   keepAlive,
   withReconnect,
   createEventCounter,
@@ -20,6 +21,7 @@ export function registerMailboxCommand(parent: Command): void {
     .argument('[address]', 'account address (defaults to configured account)')
     .action(async (address?: string) => {
       const opts = parent.parent!.optsWithGlobals() as AccountOptions & { ws?: string; count?: string; timeout?: string; persist?: boolean };
+      installGlobalTimeout(opts.timeout);
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;
       if (persist) initEventStore();

@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { setOutputOptions, installGlobalErrorHandler, outputError } from './utils';
+import { setOutputOptions, installGlobalErrorHandler, outputError, CliError } from './utils';
 import { disconnectApi } from './services/api';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
@@ -27,6 +27,7 @@ import { registerInboxCommand } from './commands/inbox';
 import { registerEventsCommand } from './commands/events';
 import { registerDexCommand } from './commands/dex';
 import { registerFaucetCommand } from './commands/faucet';
+import { registerConfigCommand, NETWORK_MAP } from './commands/config-cmd';
 
 installGlobalErrorHandler();
 
@@ -48,6 +49,7 @@ program
   .option('--human', 'force human-readable output')
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
+  .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
   .hook('preAction', () => {
     const opts = program.opts();
     setOutputOptions({
@@ -59,6 +61,19 @@ program
     if (opts.light) {
       process.env.VARA_LIGHT = '1';
     }
+    if (opts.network) {
+      if (opts.ws) {
+        throw new CliError('Cannot use both --network and --ws', 'CONFLICTING_OPTIONS');
+      }
+      const url = NETWORK_MAP[opts.network];
+      if (!url) {
+        throw new CliError(
+          `Unknown network "${opts.network}". Valid: ${Object.keys(NETWORK_MAP).join(', ')}`,
+          'INVALID_NETWORK',
+        );
+      }
+      process.env.VARA_WS = url;
+    }
   });
 
 // Register commands — Phase 1
@@ -67,6 +82,7 @@ registerWalletCommand(program);
 registerBalanceCommand(program);
 registerNodeCommand(program);
 registerFaucetCommand(program);
+registerConfigCommand(program);
 
 // Register commands — Phase 2
 registerMessageCommand(program);

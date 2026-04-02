@@ -321,22 +321,32 @@ Vara uses SS58 addresses (like `kGioe8b7...`). Program IDs and message IDs are h
 
 | Network | Endpoint | Explorer |
 |---------|----------|----------|
-| Mainnet | `wss://rpc.vara.network` (default) | https://vara.subscan.io |
-| Testnet | `wss://testnet.vara.network` | https://vara-testnet.subscan.io |
+| Mainnet | `wss://rpc.vara.network` (default) | `--network mainnet` | https://vara.subscan.io |
+| Testnet | `wss://testnet.vara.network` | `--network testnet` | https://vara-testnet.subscan.io |
+| Local | `ws://localhost:9944` | `--network local` | — |
 
 **Testnet DEX (Rivr):** Factory address `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114786e220dd0a4e`
 
 Switch networks:
 
 ```bash
+# Shorthand (recommended)
+vara-wallet --network testnet balance
+
+# Full URL
 vara-wallet --ws wss://testnet.vara.network balance
+
+# Persist across sessions
+vara-wallet config set network testnet
 ```
 
-Or set globally:
+Or set globally for the current shell session:
 
 ```bash
 export VARA_WS=wss://testnet.vara.network
 ```
+
+**Resolution order:** `--ws` > `--network` > `VARA_WS` env > `config.wsEndpoint` > default.
 
 ### Light Client Mode
 

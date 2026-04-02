@@ -18,6 +18,7 @@ export function registerCallCommand(program: Command): void {
     .option('--gas-limit <gas>', 'gas limit override (functions only)')
     .option('--idl <path>', 'path to local IDL file')
     .option('--voucher <id>', 'voucher ID to pay for the message')
+    .option('--estimate', 'estimate gas cost without sending (requires account)')
     .action(async (programId: string, method: string, options: {
       args: string;
       value: string;
@@ -25,6 +26,7 @@ export function registerCallCommand(program: Command): void {
       gasLimit?: string;
       idl?: string;
       voucher?: string;
+      estimate?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
@@ -127,7 +129,7 @@ async function executeFunction(
   serviceName: string,
   methodName: string,
   args: unknown[],
-  options: { value: string; units?: string; gasLimit?: string; voucher?: string },
+  options: { value: string; units?: string; gasLimit?: string; voucher?: string; estimate?: boolean },
   opts: AccountOptions & { ws?: string },
   programId: string,
 ): Promise<void> {
@@ -157,6 +159,16 @@ async function executeFunction(
     verbose('Calculating gas...');
     await txBuilder.calculateGas();
     verbose(`Gas: ${txBuilder.gasInfo?.min_limit?.toString() || 'calculated'}`);
+  }
+
+  if (options.estimate) {
+    output({
+      estimate: true,
+      gasLimit: (txBuilder.gasInfo as any)?.limit?.toString() ?? txBuilder.gasInfo?.min_limit?.toString() ?? null,
+      minLimit: txBuilder.gasInfo?.min_limit?.toString() ?? null,
+      value: value.toString(),
+    });
+    return;
   }
 
   if (options.voucher) {

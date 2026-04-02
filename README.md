@@ -51,7 +51,10 @@ npm link
 --human               Force human-readable output
 --quiet               Suppress all output except errors
 --verbose             Show debug info on stderr
+--network <name>      Network shorthand: mainnet, testnet, or local
 ```
+
+`--network` maps to the well-known WS endpoint for each network. Cannot be used with `--ws`.
 
 ## Environment Variables
 
@@ -159,7 +162,7 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
 vara-wallet program info <programId>
-vara-wallet program list [--count <n>]
+vara-wallet program list [--count <n>] [--all]
 ```
 
 Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array. `--payload` and `--idl` are mutually exclusive.
@@ -185,10 +188,10 @@ vara-wallet code list [--count <n>]
 
 ### `call` (Sails)
 
-High-level method invocation on Sails programs. Auto-detects queries vs functions.
+High-level method invocation on Sails programs. Auto-detects queries vs functions. Use `--estimate` to calculate gas cost without sending the transaction (requires an account).
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>]
+vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate]
 ```
 
 ### `discover` (Sails)
@@ -320,6 +323,21 @@ vara-wallet encode <type> <value> [--metadata <path>] [--idl <path>] [--program 
 vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <id>] [--method <Service/Method>]
 ```
 
+### `config`
+
+Manage persistent CLI configuration. Settings are stored in `~/.vara-wallet/config.json`.
+
+```bash
+vara-wallet config list
+vara-wallet config get <key>
+vara-wallet config set <key> <value>
+vara-wallet config set network testnet   # shorthand for wsEndpoint
+```
+
+Valid keys: `wsEndpoint`, `defaultAccount`, `metaStorageUrl`, `dexFactoryAddress`, `faucetUrl`. The `network` alias maps `mainnet`/`testnet`/`local` to the corresponding `wsEndpoint` URL.
+
+**Endpoint resolution order:** `--ws` flag > `--network` flag > `VARA_WS` env > `config.wsEndpoint` > default (`wss://rpc.vara.network`).
+
 ### `sign` / `verify`
 
 Sign arbitrary data and verify signatures. Uses raw sr25519 signing (no `<Bytes>` wrapping). No network connection needed.
@@ -369,7 +387,12 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `PAIR_NOT_FOUND` | Trading pair doesn't exist |
 | `TOKEN_MISMATCH` | Tokens don't match pair |
 | `INVALID_SLIPPAGE` | Slippage out of range (0-5000 bps) |
+| `CONNECTION_TIMEOUT` | WebSocket or light client connection timed out (10s) |
 | `CONNECTION_FAILED` | Network unreachable or request timed out |
+| `WRONG_NETWORK` | Command not available on this network (e.g., faucet on mainnet) |
+| `INVALID_NETWORK` | Unknown `--network` value |
+| `INVALID_CONFIG_KEY` | Unknown config key passed to `config set/get` |
+| `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`) |
 | `FAUCET_ERROR` | Faucet request failed |
 | `FAUCET_LIMIT` | Faucet daily/hourly limit reached |
 | `RATE_LIMITED` | Too many requests (429) |

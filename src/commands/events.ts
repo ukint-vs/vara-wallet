@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { initEventStore, queryEvents, pruneEvents } from '../services/event-store';
-import { output, addressToHex } from '../utils';
+import { output, verbose, addressToHex } from '../utils';
 import { parseDuration } from './subscribe/shared';
 
 export function registerEventsCommand(program: Command): void {
@@ -28,6 +28,10 @@ export function registerEventsCommand(program: Command): void {
         ...JSON.parse(row.data),
         storedAt: row.created_at,
       }));
+
+      if (parsed.length === 0) {
+        verbose("No events captured. Run 'vara-wallet subscribe ...' first to start capturing events.");
+      }
 
       output(parsed);
     });

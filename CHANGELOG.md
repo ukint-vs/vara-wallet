@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-04-02
+
+### Added
+- `config` command: persist CLI settings with `config set/get/list` (network, default account, meta-storage URL)
+- `--network` global option: switch networks with `--network testnet` instead of typing full WS URLs
+- `--estimate` flag on `call`: preview gas cost without sending the transaction
+- Connection timeout (10s) on WebSocket and light client: bad endpoints fail fast instead of hanging
+- `balance` and `transfer` output now includes `addressSS58` with chain-aware SS58 encoding
+- `program list` defaults to 100 results (use `--all` for unlimited)
+- Global timeout on `subscribe` commands fires before connection, so `--timeout` always works
+- Empty `events list` prints a hint (via `--verbose`) suggesting `subscribe` first
+- Faucet refuses mainnet endpoints with a clear error before connecting
+- Better `discover` error message with actionable IDL suggestions
+
+### Changed
+- Endpoint resolution now includes config fallback: `--ws` > `--network` > `VARA_WS` > config > default
+- Stderr RPC-CORE disconnect warnings are filtered during shutdown (no more noise in agent output)
+- `program upload` help text explains Sails constructor encoding with `--idl`/`--init`/`--args`
+
 ## [0.8.0] - 2026-04-02
 
 ### Added

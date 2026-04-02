@@ -131,7 +131,9 @@ async function resolveIdl(
   }
 
   throw new CliError(
-    'No IDL source available. Use --idl <path> or set VARA_META_STORAGE / config metaStorageUrl.',
+    'No IDL source available. Try: vara-wallet discover <programId> --idl ./program.idl\n' +
+    'The IDL file (.idl) comes from the program\'s source repo.\n' +
+    'Or set meta-storage: vara-wallet config set metaStorageUrl https://meta-storage.vara.network',
     'IDL_NOT_FOUND',
   );
 }

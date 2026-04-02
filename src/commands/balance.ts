@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { BN } from '@polkadot/util';
+import { encodeAddress } from '@polkadot/util-crypto';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { executeTx } from '../services/tx-executor';
@@ -18,9 +19,11 @@ export function registerBalanceCommand(program: Command): void {
       verbose(`Querying balance for ${resolvedAddress}`);
       const balance = await api.balance.findOut(resolvedAddress);
       const balanceRaw = balance.toBigInt();
+      const ss58Prefix = (api.registry.chainSS58 as number | undefined) ?? 137;
 
       output({
         address: resolvedAddress,
+        addressSS58: encodeAddress(resolvedAddress, ss58Prefix),
         balance: minimalToVara(balanceRaw),
         balanceRaw: balanceRaw.toString(),
       });
@@ -49,12 +52,15 @@ export function registerBalanceCommand(program: Command): void {
       const tx = api.balance.transfer(toHex, new BN(amountMinimal.toString()));
       const result = await executeTx(api, tx, account);
 
+      const ss58Prefix = (api.registry.chainSS58 as number | undefined) ?? 137;
+
       output({
         txHash: result.txHash,
         blockHash: result.blockHash,
         blockNumber: result.blockNumber,
         from: account.address,
         to: toHex,
+        toSS58: encodeAddress(toHex, ss58Prefix),
         amount: minimalToVara(amountMinimal),
         amountRaw: amountMinimal.toString(),
       });

@@ -7,6 +7,7 @@ import {
   emitAndPersist,
   safeCallback,
   installEpipeHandler,
+  installGlobalTimeout,
   keepAlive,
   withReconnect,
   createEventCounter,
@@ -19,6 +20,7 @@ export function registerBlocksCommand(parent: Command): void {
     .option('--finalized', 'subscribe to finalized blocks only')
     .action(async (options: { finalized?: boolean }) => {
       const opts = parent.parent!.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
+      installGlobalTimeout(opts.timeout);
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;
       if (persist) initEventStore();

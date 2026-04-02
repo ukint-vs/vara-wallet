@@ -50,7 +50,7 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW node info` | Chain name, genesis, latest block |
 | `$VW balance [address]` | Account balance in VARA |
 | `$VW program info <id>` | Program status and codeId |
-| `$VW program list [--count N]` | List on-chain programs |
+| `$VW program list [--count N] [--all]` | List on-chain programs (default: 100) |
 | `$VW code info <codeId>` | Code blob metadata |
 | `$VW code list [--count N]` | List uploaded code blobs |
 | `$VW call <pid> Service/Query --args '[]' --idl <path>` | Sails read-only query (free) |
@@ -79,6 +79,7 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW message reply <mid> [--payload <hex>]` | Reply to a message |
 | `$VW mailbox claim <messageId>` | Claim value from mailbox message |
 | `$VW call <pid> Service/Function --args '[...]' --value <v> --units vara\|raw --idl <path>` | Sails state-changing call |
+| `$VW call <pid> Service/Function --estimate --idl <path>` | Estimate gas cost without sending |
 | `$VW vft transfer <token> <to> <amount> --idl <path>` | Transfer fungible tokens |
 | `$VW vft approve <token> <spender> <amount> --idl <path>` | Approve token spender |
 | `$VW dex swap <tIn> <tOut> <amount> --factory <addr> [--slippage <bps>]` | Swap tokens (auto-approves) |
@@ -112,6 +113,9 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW wallet export <name> [--decrypt]` | Export keyring JSON |
 | `$VW wallet default [name]` | Get/set default wallet |
 | `$VW init [--name <n>]` | Initialize config + default wallet |
+| `$VW config list` | Show all config values |
+| `$VW config set network testnet` | Persist network endpoint |
+| `$VW config set <key> <value>` | Set any config key |
 
 ## Common Workflows
 
@@ -224,17 +228,26 @@ $VW --verbose balance 2>/dev/null | jq .
 ## Network Switching
 
 ```bash
-# Per-command
+# Shorthand (recommended)
+$VW --network testnet balance
+
+# Per-command with full URL
 $VW --ws wss://testnet.vara.network balance
 
 # Session-wide
 export VARA_WS=wss://testnet.vara.network
+
+# Persist in config (survives sessions)
+$VW config set network testnet
 ```
 
-| Network | Endpoint |
-|---------|----------|
-| Mainnet | `wss://rpc.vara.network` (default) |
-| Testnet | `wss://testnet.vara.network` |
+**Endpoint resolution order:** `--ws` > `--network` > `VARA_WS` env > `config.wsEndpoint` > default.
+
+| Network | Endpoint | `--network` shorthand |
+|---------|----------|----------------------|
+| Mainnet | `wss://rpc.vara.network` (default) | `--network mainnet` |
+| Testnet | `wss://testnet.vara.network` | `--network testnet` |
+| Local | `ws://localhost:9944` | `--network local` |
 
 ## Units
 

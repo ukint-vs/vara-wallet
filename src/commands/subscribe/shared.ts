@@ -3,6 +3,21 @@ import { outputNdjson, verbose, CliError, tryHexToText } from '../../utils';
 import { insertEvent, type EventInsert } from '../../services/event-store';
 import { disconnectApi } from '../../services/api';
 
+/**
+ * Install a global timeout that fires regardless of subscription phase.
+ * Must be called BEFORE getApi() to cover connection hangs.
+ */
+export function installGlobalTimeout(timeoutStr?: string): void {
+  if (!timeoutStr) return;
+  const seconds = parseInt(timeoutStr, 10);
+  if (isNaN(seconds) || seconds <= 0) return;
+  setTimeout(() => {
+    verbose('Global timeout reached, exiting...');
+    disconnectApi();
+    process.exit(0);
+  }, seconds * 1000);
+}
+
 // Valid IGearEvent keys
 const VALID_GEAR_EVENTS = [
   'MessageQueued',

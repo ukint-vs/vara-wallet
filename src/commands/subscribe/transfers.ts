@@ -8,6 +8,7 @@ import {
   emitAndPersist,
   safeCallback,
   installEpipeHandler,
+  installGlobalTimeout,
   keepAlive,
   withReconnect,
   createEventCounter,
@@ -21,6 +22,7 @@ export function registerTransfersCommand(parent: Command): void {
     .option('--to <address>', 'filter by recipient address')
     .action(async (options: { from?: string; to?: string }) => {
       const opts = parent.parent!.optsWithGlobals() as AccountOptions & { ws?: string; count?: string; timeout?: string; persist?: boolean };
+      installGlobalTimeout(opts.timeout);
       const api = await getApi(opts.ws);
       const persist = opts.persist !== false;
       if (persist) initEventStore();

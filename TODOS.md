@@ -1,5 +1,14 @@
 # TODOs
 
+## Program list --owner filter
+**Priority:** P3 | **Effort:** M (human ~2 days / CC ~30 min)
+
+Add `--owner <address>` filter to `program list` to find programs deployed by a specific
+account. Requires an indexer-backed endpoint for server-side filtering; client-side filtering
+would be O(n) RPC calls on mainnet. Deferred from the v0.9.0 DX audit.
+
+**Depends on:** Indexer support for program ownership queries.
+
 ## Full payload codec system
 **Priority:** P3 | **Effort:** L (human ~2 weeks / CC ~2 hours)
 

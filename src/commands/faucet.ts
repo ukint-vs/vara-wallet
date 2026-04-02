@@ -5,6 +5,8 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { readConfig } from '../services/config';
 import { output, verbose, CliError, minimalToVara, varaToMinimal } from '../utils';
 
+const MAINNET_ENDPOINT = 'wss://rpc.vara.network';
+
 const DEFAULT_FAUCET_URL = 'https://faucet.gear-tech.io';
 const DEFAULT_TESTNET_WS = 'wss://testnet.vara.network';
 const FETCH_TIMEOUT_MS = 10_000;
@@ -41,7 +43,17 @@ export function registerFaucetCommand(program: Command): void {
     .option('--faucet-url <url>', 'faucet API URL')
     .action(async (address?: string, options?: { faucetUrl?: string }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
-      const api = await getApi(opts.ws || DEFAULT_TESTNET_WS);
+
+      // Check for mainnet before connecting
+      const wsArg = opts.ws || process.env.VARA_WS || readConfig().wsEndpoint;
+      if (wsArg === MAINNET_ENDPOINT) {
+        throw new CliError(
+          'Faucet is for testnet only. Use --network testnet or --ws wss://testnet.vara.network',
+          'WRONG_NETWORK',
+        );
+      }
+
+      const api = await getApi(wsArg || DEFAULT_TESTNET_WS);
       const account = await resolveAccount(opts);
       const resolvedAddress = await resolveAddress(address, opts);
       const faucetUrl = resolveFaucetUrl(options?.faucetUrl);
