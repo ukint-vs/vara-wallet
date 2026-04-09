@@ -5,7 +5,7 @@ import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { parseIdlFile } from '../services/sails';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, addressToHex } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgs } from '../utils';
 
 export interface InitOptions {
   payload: string;
@@ -72,6 +72,7 @@ export async function resolveInitPayload(options: InitOptions): Promise<string> 
   }
 
   verbose(`Encoding constructor "${initName}" with ${args.length} arg(s)`);
+  args = coerceArgs(args, ctor.args || [], sails);
   try {
     return ctor.encodePayload(...args);
   } catch (err) {

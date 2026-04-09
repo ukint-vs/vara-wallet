@@ -228,5 +228,42 @@ describe('program init encoding', () => {
       expect(result).toMatch(/^0x/);
       expect(result.length).toBeGreaterThan(4);
     });
+
+    it('auto-converts hex string to byte array for vec u8 constructor arg', async () => {
+      const idlWithBytes = `
+        type Config = struct {
+          name: str,
+          data: vec u8,
+        };
+
+        constructor {
+          New : (config: Config);
+        };
+
+        service Foo {
+          query Bar : () -> u32;
+        };
+      `;
+      const idlPath = writeIdl('hex-bytes.idl', idlWithBytes);
+
+      // Pass hex string for the vec u8 field — should auto-convert
+      const hexResult = await resolveInitPayload({
+        payload: '0x',
+        idl: idlPath,
+        args: '[{"name": "test", "data": "0xaabbcc"}]',
+      });
+      expect(hexResult).toMatch(/^0x/);
+
+      // Pass explicit byte array — should also work
+      const arrayResult = await resolveInitPayload({
+        payload: '0x',
+        idl: idlPath,
+        args: '[{"name": "test", "data": [170, 187, 204]}]',
+      });
+      expect(arrayResult).toMatch(/^0x/);
+
+      // Both should produce the same encoding
+      expect(hexResult).toBe(arrayResult);
+    });
   });
 });

@@ -2,8 +2,8 @@ import { Command } from 'commander';
 import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
-import { loadSails } from '../services/sails';
-import { output, verbose, CliError, tryHexToText } from '../utils';
+import { loadSails, parseIdlFile } from '../services/sails';
+import { output, verbose, CliError, tryHexToText, coerceArgs } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -29,12 +29,15 @@ export function registerEncodeCommand(program: Command): void {
       }
 
       if (options.idl && options.method) {
-        // Sails IDL encoding
-        const opts = program.optsWithGlobals() as { ws?: string };
-        const api = await getApi(opts.ws);
-        const programId = options.program || '0x0000000000000000000000000000000000000000000000000000000000000000';
-
-        const sails = await loadSails(api, { programId, idl: options.idl });
+        // Sails IDL encoding — works offline when no --program is given
+        let sails: import('sails-js').Sails;
+        if (options.program) {
+          const opts = program.optsWithGlobals() as { ws?: string };
+          const api = await getApi(opts.ws);
+          sails = await loadSails(api, { programId: options.program, idl: options.idl });
+        } else {
+          sails = await parseIdlFile(options.idl);
+        }
 
         const parts = options.method.split('/');
         if (parts.length !== 2) {
@@ -51,7 +54,8 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
-        const args = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+        const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+        const args = coerceArgs(rawArgs, func.args, sails);
         const encoded = func.encodePayload(...args);
 
         output({ encoded });

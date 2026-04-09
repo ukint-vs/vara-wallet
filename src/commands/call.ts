@@ -4,7 +4,7 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { loadSails, describeSailsProgram } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgs } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -108,6 +108,7 @@ async function executeQuery(
   verbose(`Executing query: ${serviceName}/${methodName}`);
 
   const query = sails.services[serviceName].queries[methodName];
+  args = coerceArgs(args, query.args, sails);
   const queryBuilder = query(...args);
 
   // Set origin address if available
@@ -145,6 +146,7 @@ async function executeFunction(
   }
 
   const func = sails.services[serviceName].functions[methodName];
+  args = coerceArgs(args, func.args, sails);
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);
