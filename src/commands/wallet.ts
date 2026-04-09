@@ -119,9 +119,11 @@ export function registerWalletCommand(program: Command): void {
     .description('Export a wallet as JSON keystore')
     .argument('<name>', 'wallet name')
     .option('--decrypt', 'export decrypted JSON (exposes private key)')
-    .action((name: string, options: { decrypt?: boolean }) => {
+    .option('--output <path>', 'save JSON to file instead of stdout')
+    .action(async (name: string, options: { decrypt?: boolean; output?: string }) => {
       const json = exportWallet(name);
 
+      let result = json;
       if (options.decrypt && isEncrypted(json)) {
         const passphrase = resolvePassphrase();
         if (!passphrase) {
@@ -132,17 +134,25 @@ export function registerWalletCommand(program: Command): void {
         }
         try {
           const keyring = GearKeyring.fromJson(json, passphrase);
-          output(keyring.toJson());
+          result = keyring.toJson();
         } catch {
           throw new CliError(
             `Failed to decrypt wallet "${name}". Check your passphrase.`,
             'DECRYPT_FAILED',
           );
         }
+      }
+
+      if (options.output) {
+        const fs = await import('fs');
+        const path = await import('path');
+        const resolved = path.resolve(options.output);
+        fs.writeFileSync(resolved, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
+        output({ path: resolved, encrypted: isEncrypted(result) });
         return;
       }
 
-      output(json);
+      output(result);
     });
 
   wallet

@@ -132,7 +132,7 @@ Skips the request if the account already has >= 1000 TVARA. Faucet URL resolves 
 vara-wallet wallet create [--name <n>] [--passphrase <p>] [--no-encrypt] [--show-secret]
 vara-wallet wallet import [--name <n>] [--mnemonic <m>] [--seed <s>] [--json <path>] [--passphrase <p>] [--no-encrypt]
 vara-wallet wallet list
-vara-wallet wallet export <name> [--decrypt]
+vara-wallet wallet export <name> [--decrypt] [--output <path>]
 vara-wallet wallet keys <name>
 vara-wallet wallet default [name]
 ```

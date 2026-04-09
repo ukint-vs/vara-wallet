@@ -110,7 +110,7 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 | `$VW wallet create [--name <n>]` | Create encrypted wallet |
 | `$VW wallet import [--seed <s>] [--mnemonic <m>] [--json <path>]` | Import existing key |
 | `$VW wallet list` | List all wallets |
-| `$VW wallet export <name> [--decrypt]` | Export keyring JSON |
+| `$VW wallet export <name> [--decrypt] [--output <path>]` | Export keyring JSON (optionally to file) |
 | `$VW wallet keys <name>` | Export raw keys (address, publicKey, secretKeyPkcs8) |
 | `$VW wallet default [name]` | Get/set default wallet |
 | `$VW init [--name <n>]` | Initialize config + default wallet |
