@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-04-09
+
+### Added
+- Auto-convert hex strings (e.g., `"0xabcdef..."`) to byte arrays for `vec u8` and `[u8; N]` IDL types in Sails calls — no more Python workarounds for binary arguments
+- `encode` command works offline when `--idl` is provided without `--program`
+
+### Fixed
+- Sails program errors now surface with readable messages and `PROGRAM_ERROR` error code instead of `[object Object]`
+- `formatError()` fallback properly serializes non-Error objects via `JSON.stringify`
+
+### Changed
+- Repository URLs updated from `ukint-vs` to `gear-foundation`
+
 ## [0.9.0] - 2026-04-02
 
 ### Added

@@ -21,6 +21,9 @@ vara-wallet transfer <destination> 10
 
 # Interact with a Sails program
 vara-wallet call <programId> Service/Method --args '["arg1", "arg2"]'
+
+# Pass hex strings for binary args — auto-converted to byte arrays
+vara-wallet call <programId> Service/Upload --args '["0xdeadbeef"]'
 ```
 
 ## Installation
@@ -394,6 +397,7 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `INVALID_CONFIG_KEY` | Unknown config key passed to `config set/get` |
 | `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`) |
 | `FAUCET_ERROR` | Faucet request failed |
+| `PROGRAM_ERROR` | Sails program execution failed (panic/error) |
 | `FAUCET_LIMIT` | Faucet daily/hourly limit reached |
 | `RATE_LIMITED` | Too many requests (429) |
 | `AUTH_ERROR` | Signature verification failed |

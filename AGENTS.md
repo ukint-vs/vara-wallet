@@ -306,6 +306,7 @@ Every error returns `{ error: "message", code: "ERROR_CODE" }` on stderr.
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network may be congested |
 | `TX_FAILED` | On-chain failure | Check events in output for details |
 | `IDL_NOT_FOUND` | No Sails IDL for program | Provide `--idl <path>` or set `VARA_META_STORAGE` |
+| `PROGRAM_ERROR` | Program panicked/failed | Check error message for program-side issue |
 
 ## Addresses
 
@@ -427,8 +428,10 @@ echo $RESULT | jq '.events[] | select(.section == "balances" and .method == "Tra
 
 4. **IDL resolution.** The `call`, `discover`, and `vft` commands need a Sails IDL. Provide `--idl <path>` or set `VARA_META_STORAGE` for remote fetch by program codeId.
 
-5. **NDJSON for streaming.** The `watch` command outputs one JSON object per line (newline-delimited JSON), not a JSON array.
+5. **Hex strings for byte arrays.** When a Sails method expects `vec u8` or `[u8; N]`, you can pass hex strings like `"0xabcdef..."` in `--args` and they'll be auto-converted to byte arrays. No need to manually convert hex to number arrays.
 
-6. **Wallet encryption is default.** `wallet create` always encrypts unless `--no-encrypt` is passed. Secrets (mnemonic, seed) are suppressed unless `--show-secret` is passed.
+6. **NDJSON for streaming.** The `watch` command outputs one JSON object per line (newline-delimited JSON), not a JSON array.
 
-7. **File permissions matter.** Wallet files are `0600`, passphrase file is `0600`, wallets directory is `0700`. The CLI enforces this.
+7. **Wallet encryption is default.** `wallet create` always encrypts unless `--no-encrypt` is passed. Secrets (mnemonic, seed) are suppressed unless `--show-secret` is passed.
+
+8. **File permissions matter.** Wallet files are `0600`, passphrase file is `0600`, wallets directory is `0700`. The CLI enforces this.

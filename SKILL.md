@@ -271,6 +271,7 @@ Existential deposit is ~10 VARA on mainnet.
 | `TX_FAILED` | On-chain failure | Inspect `.events` in output |
 | `IDL_NOT_FOUND` | No Sails IDL | Provide `--idl <path>` |
 | `METHOD_NOT_FOUND` | Method not in IDL | Check `discover` output |
+| `PROGRAM_ERROR` | Program panicked/failed | Check error message for program-side issue |
 
 ## Guardrails
 
