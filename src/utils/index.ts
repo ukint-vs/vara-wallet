@@ -3,3 +3,4 @@ export { CliError, outputError, formatError, installGlobalErrorHandler } from '.
 export { varaToMinimal, minimalToVara, toMinimalUnits, resolveAmount } from './units';
 export { addressToHex } from './address';
 export { textToHex, tryHexToText, resolvePayload } from './payload';
+export { coerceArgs } from './hex-bytes';
