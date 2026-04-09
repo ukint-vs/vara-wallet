@@ -92,6 +92,20 @@ describe('verify (unit logic)', () => {
   });
 });
 
+describe('wallet keys (unit logic)', () => {
+  it('encodePkcs8 returns raw PKCS8 bytes for an unlocked keypair', () => {
+    const pkcs8 = alice.encodePkcs8();
+    expect(pkcs8).toBeInstanceOf(Uint8Array);
+    expect(pkcs8.length).toBeGreaterThan(0);
+    expect(u8aToHex(pkcs8)).toMatch(/^0x/);
+  });
+
+  it('publicKey is 32 bytes for sr25519', () => {
+    expect(alice.publicKey.length).toBe(32);
+    expect(alice.type).toBe('sr25519');
+  });
+});
+
 describe('input validation', () => {
   it('hexToU8a is permissive — our command uses strict regex validation', () => {
     // hexToU8a does NOT throw on non-0x-prefixed or odd-length hex,

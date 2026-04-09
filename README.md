@@ -133,6 +133,7 @@ vara-wallet wallet create [--name <n>] [--passphrase <p>] [--no-encrypt] [--show
 vara-wallet wallet import [--name <n>] [--mnemonic <m>] [--seed <s>] [--json <path>] [--passphrase <p>] [--no-encrypt]
 vara-wallet wallet list
 vara-wallet wallet export <name> [--decrypt]
+vara-wallet wallet keys <name>
 vara-wallet wallet default [name]
 ```
 
@@ -167,6 +168,8 @@ vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <na
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>] [--all]
 ```
+
+`wallet keys` outputs the raw key material: `{ address, publicKey, secretKeyPkcs8, type }`. The PKCS8 blob contains the full secret key and can be used with Polkadot tooling to reconstruct the keypair. This is a sensitive operation — the secret key is exposed in the output.
 
 Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array. `--payload` and `--idl` are mutually exclusive.
 

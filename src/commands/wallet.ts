@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { GearKeyring } from '@gear-js/api';
+import { u8aToHex } from '@polkadot/util';
 import { saveWallet, loadWallet, listWallets, exportWallet, isEncrypted, readPassphraseFile, ensurePassphraseFile } from '../services/wallet-store';
 import { resolvePassphrase } from '../services/account';
 import { readConfig, updateConfig } from '../services/config';
@@ -142,6 +143,43 @@ export function registerWalletCommand(program: Command): void {
       }
 
       output(json);
+    });
+
+  wallet
+    .command('keys')
+    .description('Export raw key material from a wallet (exposes secret key)')
+    .argument('<name>', 'wallet name')
+    .action((name: string) => {
+      const json = loadWallet(name);
+      const passphrase = isEncrypted(json) ? resolvePassphrase() : undefined;
+
+      if (isEncrypted(json) && !passphrase) {
+        throw new CliError(
+          `Wallet "${name}" is encrypted. Create ~/.vara-wallet/.passphrase or set VARA_PASSPHRASE to decrypt.`,
+          'PASSPHRASE_REQUIRED',
+        );
+      }
+
+      let keyring;
+      try {
+        keyring = GearKeyring.fromJson(json, passphrase);
+      } catch {
+        throw new CliError(
+          `Failed to decrypt wallet "${name}". Check your passphrase.`,
+          'DECRYPT_FAILED',
+        );
+      }
+
+      // encodePkcs8() without passphrase returns the raw PKCS8-encoded keypair
+      // which contains the full secret key (miniSecretKey + public key)
+      const pkcs8 = keyring.encodePkcs8();
+
+      output({
+        address: keyring.address,
+        publicKey: u8aToHex(keyring.publicKey),
+        secretKeyPkcs8: u8aToHex(pkcs8),
+        type: keyring.type,
+      });
     });
 
   wallet
