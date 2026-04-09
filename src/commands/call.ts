@@ -176,7 +176,17 @@ async function executeFunction(
   }
 
   const result = await txBuilder.signAndSend();
-  const response = await result.response();
+  let response;
+  try {
+    response = await result.response();
+  } catch (err) {
+    const msg = err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null
+        ? JSON.stringify(err)
+        : String(err);
+    throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
+  }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
   output({

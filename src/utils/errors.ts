@@ -23,7 +23,10 @@ export function formatError(error: unknown): { error: string; code: string } {
     return { error: message, code: classifyError(error) };
   }
 
-  return { error: String(error), code: 'UNKNOWN_ERROR' };
+  const msg = typeof error === 'object' && error !== null
+    ? JSON.stringify(error)
+    : String(error);
+  return { error: msg, code: 'UNKNOWN_ERROR' };
 }
 
 function sanitizeErrorMessage(message: string): string {
@@ -78,7 +81,7 @@ export function installGlobalErrorHandler(): void {
 
   process.on('unhandledRejection', (reason) => {
     if (getShutdownStatus()) return;
-    outputError(reason instanceof Error ? reason : new Error(String(reason)));
+    outputError(reason);
     process.exit(1);
   });
 }

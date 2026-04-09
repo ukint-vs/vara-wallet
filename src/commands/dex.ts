@@ -348,7 +348,16 @@ async function ensureApproval(
     resetTx.withAccount(account);
     await resetTx.calculateGas();
     const resetResult = await resetTx.signAndSend();
-    await resetResult.response();
+    try {
+      await resetResult.response();
+    } catch (err) {
+      const msg = err instanceof Error
+        ? err.message
+        : typeof err === 'object' && err !== null
+          ? JSON.stringify(err)
+          : String(err);
+      throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
+    }
     verbose('Allowance reset to 0');
   }
 
@@ -358,7 +367,16 @@ async function ensureApproval(
   approveTx.withAccount(account);
   await approveTx.calculateGas();
   const result = await approveTx.signAndSend();
-  await result.response();
+  try {
+    await result.response();
+  } catch (err) {
+    const msg = err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null
+        ? JSON.stringify(err)
+        : String(err);
+    throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
+  }
   verbose(`Approval confirmed in block ${result.blockHash}`);
 }
 
@@ -390,7 +408,17 @@ async function executeDexTx(
   }
 
   const result = await txBuilder.signAndSend();
-  const response = await result.response();
+  let response;
+  try {
+    response = await result.response();
+  } catch (err) {
+    const msg = err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null
+        ? JSON.stringify(err)
+        : String(err);
+    throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
+  }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
   output({
