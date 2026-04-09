@@ -50,6 +50,14 @@ describe('formatError', () => {
     expect(formatError('oops')).toEqual({ error: 'oops', code: 'UNKNOWN_ERROR' });
   });
 
+  it('serializes plain object non-Error values as JSON', () => {
+    const obj = { method: 'InsufficientBalance', docs: 'Insufficient user balance.' };
+    const result = formatError(obj);
+    expect(result.code).toBe('UNKNOWN_ERROR');
+    expect(result.error).toContain('InsufficientBalance');
+    expect(result.error).toContain('Insufficient user balance.');
+  });
+
   it('returns INTERNAL_ERROR for unclassified errors', () => {
     const err = new Error('something strange happened');
     expect(formatError(err).code).toBe('INTERNAL_ERROR');
