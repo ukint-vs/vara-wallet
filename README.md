@@ -28,9 +28,13 @@ vara-wallet call <programId> Service/Upload --args '["0xdeadbeef"]'
 
 ## Installation
 
+Requires Node.js 20 or newer.
+
 ```bash
 npm install -g vara-wallet
 ```
+
+The CLI ships as a single bundled file (~2 MB gzipped) with only two runtime dependencies (`better-sqlite3` and `smoldot`), so global install is a few seconds on any network.
 
 ### From source
 
@@ -137,6 +141,8 @@ vara-wallet wallet keys <name>
 vara-wallet wallet default [name]
 ```
 
+`wallet keys` outputs the raw key material: `{ address, publicKey, secretKeyPkcs8, type }`. The PKCS8 blob contains the full secret key and can be used with Polkadot tooling to reconstruct the keypair. This is a sensitive operation — the secret key is exposed in the output. For a redacted export suitable for sharing, use `wallet export`.
+
 ### `node`
 
 ```bash
@@ -148,7 +154,10 @@ vara-wallet node info
 ```bash
 vara-wallet balance [address]
 vara-wallet transfer <to> <amount> [--units vara|raw]
+vara-wallet transfer <to> --all
 ```
+
+`--all` drains the entire account via Substrate's native `transferAll` extrinsic (no client-side fee/ED math). Without `--all`, transfers use `transferKeepAlive`. `--all` and an explicit amount are mutually exclusive.
 
 ### `message`
 
@@ -168,8 +177,6 @@ vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <na
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>] [--all]
 ```
-
-`wallet keys` outputs the raw key material: `{ address, publicKey, secretKeyPkcs8, type }`. The PKCS8 blob contains the full secret key and can be used with Polkadot tooling to reconstruct the keypair. This is a sensitive operation — the secret key is exposed in the output.
 
 Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array. `--payload` and `--idl` are mutually exclusive.
 
@@ -408,10 +415,13 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 ## Development
 
 ```bash
-npm run build        # Compile TypeScript
+npm run build        # Bundle CLI with esbuild → dist/app.js
+npm run dev          # Run from source via ts-node
 npm test             # Run tests
 npx tsc --noEmit     # Type check only
 ```
+
+The published artifact is a single bundled file (`dist/app.js`) built by `scripts/build.mjs`. `better-sqlite3` and `smoldot` are kept external because they ship native binaries / WASM that cannot be inlined.
 
 ## License
 

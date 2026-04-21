@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0] - 2026-04-22
+
+### Added
+- `wallet keys <name>` command: export raw key material (`address`, `publicKey`, `secretKeyPkcs8`, `type`) for use with Polkadot tooling
+- `transfer --all` flag: drain the entire account via Substrate's native `transferAll` extrinsic (no client-side fee/ED math)
+
+### Changed
+- **CLI is now bundled with esbuild into a single `dist/app.js`.** Runtime dependencies shrink from ~120 transitive packages to 2 (`better-sqlite3`, `smoldot`). Fixes reports of `npm install -g vara-wallet` hanging for minutes on slow networks, where npm's retry policy turned stalled tarball fetches into multi-minute retry storms. Global install is now ~2 MB gzipped and a few seconds on any network.
+- **Node.js 20 or newer is now required** (`engines: { node: ">=20" }`). Matches the existing CI matrix.
+- Build script: `npm run build` now invokes `node scripts/build.mjs` instead of `tsc`.
+
 ## [0.10.0] - 2026-04-09
 
 ### Added
