@@ -119,6 +119,28 @@ vara-wallet --account agent sign 0xdeadbeef --hex
 
 Uses raw sr25519 signing (no `<Bytes>` wrapping — different from Polkadot browser extension convention).
 
+### Extracting private keys
+
+Three ways to get key material from a wallet:
+
+```bash
+# 1. At creation time — show mnemonic and seed (only chance to see mnemonic)
+vara-wallet wallet create --name my-key --show-secret
+# Output: { address, name, mnemonic, seed, ... }
+
+# 2. Export raw keys from an existing wallet
+vara-wallet wallet keys my-key
+# Output: { address, publicKey, secretKeyPkcs8, type }
+
+# 3. Export decrypted JSON keystore (Polkadot-compatible format)
+vara-wallet wallet export my-key --decrypt
+# Output: full JSON keystore with unencrypted encoded field
+```
+
+**`wallet keys`** is the most direct method — it outputs the PKCS8-encoded secret key as hex. This blob contains the full keypair and can be used with Polkadot tooling (`@polkadot/keyring`) to reconstruct the pair.
+
+**Important:** The mnemonic is only available at `wallet create --show-secret` time. It is not stored in the wallet file. If you need the mnemonic for backup or cross-wallet recovery, capture it at creation.
+
 ### Discovering program interfaces
 
 Before calling a program, discover its interface:
