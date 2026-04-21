@@ -314,6 +314,14 @@ vara-wallet transfer <to> 1500000000 --units raw   # same amount in raw units
 
 The existential deposit (minimum balance) is typically 10 VARA on mainnet.
 
+### Draining an account
+
+```bash
+vara-wallet transfer <to> --all        # sends full balance, closes the sender's account
+```
+
+`--all` uses Substrate's native `transferAll` extrinsic with `keepAlive=false`, so there's no client-side fee/ED math to get wrong. The source account is reaped after the call. Regular transfers (without `--all`) use `transferKeepAlive` and leave at least the existential deposit behind. `--all` and an explicit amount are mutually exclusive.
+
 ## Error Handling
 
 Every error returns `{ error: "message", code: "ERROR_CODE" }` on stderr.
