@@ -31,15 +31,14 @@ import { registerConfigCommand, NETWORK_MAP } from './commands/config-cmd';
 
 installGlobalErrorHandler();
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pkg = require('../package.json');
+const VERSION = process.env.VARA_WALLET_VERSION ?? '0.0.0-dev';
 
 const program = new Command();
 
 program
   .name('vara-wallet')
   .description('Agentic wallet CLI for Vara Network — designed for AI coding agents')
-  .version(pkg.version)
+  .version(VERSION)
   .option('--ws <endpoint>', 'WebSocket endpoint (default: wss://rpc.vara.network)')
   .option('--light', 'use embedded light client (smoldot) instead of WebSocket')
   .option('--seed <seed>', 'account seed (SURI like //Alice or hex)')
