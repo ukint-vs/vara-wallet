@@ -33,36 +33,66 @@ export function registerBalanceCommand(program: Command): void {
     .command('transfer')
     .description('Transfer VARA tokens')
     .argument('<to>', 'destination address (hex or SS58)')
-    .argument('<amount>', 'amount to transfer (in VARA by default)')
+    .argument('[amount]', 'amount to transfer (in VARA by default)')
     .option('--units <units>', 'amount units: vara (default) or raw')
-    .action(async (to: string, amount: string, options: { units?: string }) => {
+    .option('--all', 'transfer entire balance (account will be reaped)')
+    .action(async (to: string, amount: string | undefined, options: { units?: string; all?: boolean }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const amountMinimal = resolveAmount(amount, isRaw);
 
-      if (amountMinimal <= 0n) {
-        throw new CliError('Amount must be positive', 'INVALID_AMOUNT');
+      if (!amount && !options.all) {
+        throw new CliError('Provide <amount> or use --all', 'INVALID_ARGS');
+      }
+      if (amount && options.all) {
+        throw new CliError('Cannot use --all with an explicit amount', 'INVALID_ARGS');
       }
 
       const toHex = addressToHex(to);
-      verbose(`Transferring ${minimalToVara(amountMinimal)} VARA from ${account.address} to ${toHex}`);
-
-      const tx = api.balance.transfer(toHex, new BN(amountMinimal.toString()));
-      const result = await executeTx(api, tx, account);
-
       const ss58Prefix = (api.registry.chainSS58 as number | undefined) ?? 137;
 
-      output({
-        txHash: result.txHash,
-        blockHash: result.blockHash,
-        blockNumber: result.blockNumber,
-        from: account.address,
-        to: toHex,
-        toSS58: encodeAddress(toHex, ss58Prefix),
-        amount: minimalToVara(amountMinimal),
-        amountRaw: amountMinimal.toString(),
-      });
+      if (options.all) {
+        const balance = await api.balance.findOut(account.address);
+        const balanceRaw = balance.toBigInt();
+
+        verbose(`Transferring all ${minimalToVara(balanceRaw)} VARA from ${account.address} to ${toHex}`);
+
+        const tx = api.tx.balances.transferAll(toHex, false);
+        const result = await executeTx(api, tx, account);
+
+        output({
+          txHash: result.txHash,
+          blockHash: result.blockHash,
+          blockNumber: result.blockNumber,
+          from: account.address,
+          to: toHex,
+          toSS58: encodeAddress(toHex, ss58Prefix),
+          amount: minimalToVara(balanceRaw),
+          amountRaw: balanceRaw.toString(),
+        });
+      } else {
+        const isRaw = options.units === 'raw';
+        const amountMinimal = resolveAmount(amount!, isRaw);
+
+        if (amountMinimal <= 0n) {
+          throw new CliError('Amount must be positive', 'INVALID_AMOUNT');
+        }
+
+        verbose(`Transferring ${minimalToVara(amountMinimal)} VARA from ${account.address} to ${toHex}`);
+
+        const tx = api.balance.transfer(toHex, new BN(amountMinimal.toString()));
+        const result = await executeTx(api, tx, account);
+
+        output({
+          txHash: result.txHash,
+          blockHash: result.blockHash,
+          blockNumber: result.blockNumber,
+          from: account.address,
+          to: toHex,
+          toSS58: encodeAddress(toHex, ss58Prefix),
+          amount: minimalToVara(amountMinimal),
+          amountRaw: amountMinimal.toString(),
+        });
+      }
     });
 }
