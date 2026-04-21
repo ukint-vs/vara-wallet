@@ -71,7 +71,8 @@ The passphrase is stored at `~/.vara-wallet/.passphrase` (0600). The agent never
 
 | Command | Purpose |
 |---------|---------|
-| `$VW transfer <to> <amount>` | Transfer VARA tokens |
+| `$VW transfer <to> <amount>` | Transfer VARA tokens (keep-alive, safe default) |
+| `$VW transfer <to> --all` | Drain the entire account (`transferAll`, closes the account) |
 | `$VW program upload <wasm> [--idl <path>] [--init <name>] [--args <json>] [--payload <hex>] [--value <v>]` | Upload + init program (use --idl for auto-encoding) |
 | `$VW program deploy <codeId> [--idl <path>] [--init <name>] [--args <json>] [--payload <hex>] [--value <v>]` | Deploy from existing code (use --idl for auto-encoding) |
 | `$VW code upload <wasm>` | Upload code blob only |
