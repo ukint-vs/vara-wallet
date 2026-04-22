@@ -1,20 +1,18 @@
 import { SailsIdlParser } from 'sails-js-parser';
 import { Sails } from 'sails-js';
 import { coerceHexToBytes, coerceArgs } from '../utils/hex-bytes';
+import { getRegistryTypes } from '../services/sails';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypeMap = Map<string, any>;
 
-// Helper: parse IDL and return {sails, typeMap, service}
+// Helper: parse IDL and return {sails, typeMap}. Uses the exported
+// `getRegistryTypes` so we don't reach into private `_program.types`.
 async function setup(idl: string) {
   const parser = await SailsIdlParser.new();
   const sails = new Sails(parser);
   sails.parseIdl(idl);
-  const typeMap: TypeMap = new Map();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const t of (sails as any)._program.types) {
-    typeMap.set(t.name, t.def);
-  }
+  const typeMap: TypeMap = getRegistryTypes(sails);
   return { sails, typeMap };
 }
 

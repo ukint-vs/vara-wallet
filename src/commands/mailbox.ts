@@ -54,8 +54,7 @@ export function registerMailboxCommand(program: Command): void {
 
       verbose(`Claiming value from message ${messageId}`);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tx = (api.mailbox as any).claimValue(messageId as `0x${string}`);
+      const tx = api.mailbox.claimValue(messageId as `0x${string}`);
       const result = await executeTx(api, tx, account);
 
       output({

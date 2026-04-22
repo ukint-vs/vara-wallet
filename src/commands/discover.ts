@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
-import { loadSails, describeSailsProgram } from '../services/sails';
+import { loadSailsAuto, describeSailsProgram, getSailsVersion } from '../services/sails';
 import { output, verbose, addressToHex } from '../utils';
 
 export function registerDiscoverCommand(program: Command): void {
@@ -16,11 +16,12 @@ export function registerDiscoverCommand(program: Command): void {
       const programIdHex = addressToHex(programId);
       verbose(`Discovering program ${programIdHex}`);
 
-      const sails = await loadSails(api, { programId: programIdHex, idl: options.idl });
+      const sails = await loadSailsAuto(api, { programId: programIdHex, idl: options.idl });
       const description = describeSailsProgram(sails);
 
       output({
         programId: programIdHex,
+        idlVersion: getSailsVersion(sails),
         services: description,
       });
     });

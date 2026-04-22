@@ -15,8 +15,9 @@
   "scripts": {
     "build": "rm -rf dist && node scripts/build.mjs",
     "start": "node dist/app.js",
-    "dev": "ts-node src/app.ts",
+    "dev": "ts-node --transpile-only src/app.ts",
     "test": "jest",
+    "test:smoke": "node scripts/smoke.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"
   },
@@ -25,7 +26,7 @@
     "smoldot": "https://github.com/ukint-vs/smoldot-gear/releases/download/v2.0.40-gear/smoldot-2.0.40.tgz"
   },
   "devDependencies": {
-    "@gear-js/api": "^0.44.2",
+    "@gear-js/api": "^0.45.0",
     "@polkadot/api": "^16.5.4",
     "@polkadot/util": "^14.0.2",
     "@types/better-sqlite3": "^7.6.0",
@@ -35,7 +36,7 @@
     "commander": "^14.0.3",
     "esbuild": "^0.24.0",
     "jest": "^30.2.0",
-    "sails-js": "^0.5.1",
+    "sails-js": "https://github.com/gear-tech/sails/releases/download/js%2Fv1.0.0-beta.1/sails-js.tgz",
     "sails-js-parser": "^0.5.1",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.0",

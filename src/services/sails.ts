@@ -1,18 +1,46 @@
 import { GearApi } from '@gear-js/api';
-import { Sails } from 'sails-js';
-import { SailsIdlParser } from 'sails-js-parser';
+import { Sails, SailsProgram } from 'sails-js';
+import { SailsIdlParser as V1Parser } from 'sails-js-parser';
+import { SailsIdlParser as V2Parser } from 'sails-js/parser';
 import * as fs from 'fs';
 import { CliError, verbose, addressToHex } from '../utils';
 import { readConfig } from './config';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
-let parserPromise: Promise<SailsIdlParser> | null = null;
+export type LoadedSails = Sails | SailsProgram;
+export type IdlVersion = 'v1' | 'v2' | 'unknown';
 
-async function getParser(): Promise<SailsIdlParser> {
-  if (!parserPromise) {
-    parserPromise = SailsIdlParser.new();
+let v1ParserPromise: Promise<V1Parser> | null = null;
+let v2ParserPromise: Promise<V2Parser> | null = null;
+
+async function getV1Parser(): Promise<V1Parser> {
+  if (!v1ParserPromise) {
+    v1ParserPromise = V1Parser.new();
   }
-  return parserPromise;
+  return v1ParserPromise;
+}
+
+async function getV2Parser(): Promise<V2Parser> {
+  if (!v2ParserPromise) {
+    v2ParserPromise = (async () => {
+      const parser = new V2Parser();
+      await parser.init();
+      return parser;
+    })();
+  }
+  return v2ParserPromise;
+}
+
+/**
+ * Detect IDL version from the source text.
+ *
+ * v2 IDLs start with a `!@sails: <version>` directive. v1 IDLs have no
+ * version marker. Returns 'unknown' when absent — callers should attempt
+ * v1 parse first (no WASM init), then fall back to v2 on failure.
+ */
+export function detectIdlVersion(idlText: string): IdlVersion {
+  if (/^\s*!@sails:\s*/m.test(idlText)) return 'v2';
+  return 'unknown';
 }
 
 export interface SailsSetupOptions {
@@ -20,7 +48,9 @@ export interface SailsSetupOptions {
   programId: string;
   /** Optional validator for bundled IDL fallback. When provided, bundled IDLs
    *  are tried as a last resort; the validator must return true for the IDL to be accepted.
-   *  Callers typically check that the required method exists in some service. */
+   *  Callers typically check that the required method exists in some service.
+   *
+   *  v1 only — bundled fallback is not supported on v2. */
   idlValidator?: (sails: Sails) => boolean;
   /** Optional bundled IDL strings to try as fallback. When provided, these are used
    *  instead of the default VFT bundled IDLs. Requires idlValidator to be set. */
@@ -28,18 +58,18 @@ export interface SailsSetupOptions {
 }
 
 /**
- * Load and parse a Sails IDL, returning a configured Sails instance.
+ * Load a v1 Sails IDL and return a configured Sails instance.
  *
- * IDL resolution:
+ * IDL resolution cascade:
  * 1. --idl <path> flag (local file)
  * 2. Remote fetch from meta-storage using program's codeId
  * 3. Bundled IDL fallback (only when idlValidator is provided)
  */
-export async function loadSails(
+export async function loadSailsV1(
   api: GearApi,
   options: SailsSetupOptions,
 ): Promise<Sails> {
-  const parser = await getParser();
+  const parser = await getV1Parser();
   const sails = new Sails(parser);
 
   const programId = addressToHex(options.programId);
@@ -51,10 +81,101 @@ export async function loadSails(
   return sails;
 }
 
+/**
+ * Load a v2 Sails IDL and return a configured SailsProgram instance.
+ *
+ * Same IDL resolution cascade as loadSailsV1, minus the bundled fallback
+ * (no bundled v2 IDLs ship with vara-wallet).
+ */
+export async function loadSailsV2(
+  api: GearApi,
+  options: SailsSetupOptions,
+): Promise<SailsProgram> {
+  const parser = await getV2Parser();
+  const programId = addressToHex(options.programId);
+  const idlString = await resolveIdl(api, { ...options, programId }, null);
+  const doc = parser.parse(idlString);
+  const program = new SailsProgram(doc);
+  program.setApi(api);
+  program.setProgramId(programId);
+  return program;
+}
+
+/**
+ * Load a Sails IDL, auto-detecting version.
+ *
+ * Detection strategy: text marker first, then parser-try fallback.
+ * If the IDL has no `!@sails:` directive, we try v1 first (no WASM init cost)
+ * and fall back to v2 on parse failure, preserving both error messages.
+ */
+export async function loadSailsAuto(
+  api: GearApi,
+  options: SailsSetupOptions,
+): Promise<LoadedSails> {
+  // Bundled fallback path is v1-only. If the caller provided a validator,
+  // stay on the v1 loader so existing vft/dex flows keep working.
+  if (options.idlValidator) {
+    return loadSailsV1(api, options);
+  }
+
+  const programId = addressToHex(options.programId);
+  const idlString = await resolveIdl(api, { ...options, programId }, null);
+  const version = detectIdlVersion(idlString);
+
+  if (version === 'v2') {
+    return buildV2FromIdl(api, programId, idlString);
+  }
+  if (version === 'v1') {
+    // Cannot currently happen — detectIdlVersion never returns 'v1' explicitly.
+    // Reserved for future expansion if upstream adds a v1 marker.
+    return buildV1FromIdl(api, programId, idlString);
+  }
+
+  // 'unknown' — try v1 first, fall back to v2.
+  try {
+    return await buildV1FromIdl(api, programId, idlString);
+  } catch (v1Err) {
+    try {
+      return await buildV2FromIdl(api, programId, idlString);
+    } catch (v2Err) {
+      const v1Msg = v1Err instanceof Error ? v1Err.message : String(v1Err);
+      const v2Msg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+      throw new CliError(
+        `IDL parse failed on both v1 and v2 parsers.\n  v1: ${v1Msg}\n  v2: ${v2Msg}`,
+        'IDL_PARSE_ERROR',
+      );
+    }
+  }
+}
+
+async function buildV1FromIdl(api: GearApi, programId: `0x${string}`, idlString: string): Promise<Sails> {
+  const parser = await getV1Parser();
+  const sails = new Sails(parser);
+  sails.parseIdl(idlString);
+  sails.setApi(api);
+  sails.setProgramId(programId);
+  return sails;
+}
+
+async function buildV2FromIdl(api: GearApi, programId: `0x${string}`, idlString: string): Promise<SailsProgram> {
+  const parser = await getV2Parser();
+  const doc = parser.parse(idlString);
+  const program = new SailsProgram(doc);
+  program.setApi(api);
+  program.setProgramId(programId);
+  return program;
+}
+
+/**
+ * @deprecated Use loadSailsV1 directly (for vft/dex flows with bundled IDLs) or
+ * loadSailsAuto (for generic flows). Alias preserved to keep vft.ts/dex.ts stable.
+ */
+export const loadSails = loadSailsV1;
+
 async function resolveIdl(
   api: GearApi,
   options: SailsSetupOptions,
-  parser: SailsIdlParser,
+  parser: V1Parser | null,
 ): Promise<string> {
   // 1. Local file
   if (options.idl) {
@@ -102,8 +223,8 @@ async function resolveIdl(
     }
   }
 
-  // 3. Bundled IDL fallback (only when a validator is provided)
-  if (options.idlValidator) {
+  // 3. Bundled IDL fallback (v1 only; requires validator + v1 parser).
+  if (options.idlValidator && parser) {
     const idlsToTry = options.bundledIdls ?? BUNDLED_VFT_IDLS;
     verbose('Trying bundled IDLs as fallback...');
     for (const bundledIdl of idlsToTry) {
@@ -139,22 +260,13 @@ async function resolveIdl(
 }
 
 /**
- * Parse a local IDL file without requiring an API connection or programId.
+ * Parse a local IDL v1 file without requiring an API connection or programId.
  * Useful for encoding constructor payloads before deployment.
  */
-export async function parseIdlFile(idlPath: string): Promise<Sails> {
-  const parser = await getParser();
+export async function parseIdlFileV1(idlPath: string): Promise<Sails> {
+  const parser = await getV1Parser();
   const sails = new Sails(parser);
-  let idlString: string;
-  try {
-    idlString = await fs.promises.readFile(idlPath, 'utf-8');
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      throw new CliError(`IDL file not found: ${idlPath}`, 'IDL_FILE_NOT_FOUND');
-    }
-    throw new CliError(`Failed to read IDL file: ${idlPath}`, 'IDL_FILE_ERROR');
-  }
+  const idlString = await readIdlFile(idlPath);
   try {
     sails.parseIdl(idlString);
   } catch (err) {
@@ -166,11 +278,139 @@ export async function parseIdlFile(idlPath: string): Promise<Sails> {
   return sails;
 }
 
+/** Parse a local IDL v2 file. */
+export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
+  const parser = await getV2Parser();
+  const idlString = await readIdlFile(idlPath);
+  try {
+    const doc = parser.parse(idlString);
+    return new SailsProgram(doc);
+  } catch (err) {
+    throw new CliError(
+      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
+      'IDL_PARSE_ERROR',
+    );
+  }
+}
+
 /**
- * Describe a Sails type definition as a human-readable string.
+ * Parse a local IDL file, auto-detecting version.
+ * Used by offline flows (ctor encoding, encode/decode commands).
+ */
+export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
+  const idlString = await readIdlFile(idlPath);
+  const version = detectIdlVersion(idlString);
+
+  if (version === 'v2') {
+    const parser = await getV2Parser();
+    return new SailsProgram(parser.parse(idlString));
+  }
+
+  // 'unknown' — try v1 first, fall back to v2.
+  try {
+    const parser = await getV1Parser();
+    const sails = new Sails(parser);
+    sails.parseIdl(idlString);
+    return sails;
+  } catch (v1Err) {
+    try {
+      const parser = await getV2Parser();
+      return new SailsProgram(parser.parse(idlString));
+    } catch (v2Err) {
+      const v1Msg = v1Err instanceof Error ? v1Err.message : String(v1Err);
+      const v2Msg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+      throw new CliError(
+        `IDL parse failed on both v1 and v2 parsers.\n  v1: ${v1Msg}\n  v2: ${v2Msg}`,
+        'IDL_PARSE_ERROR',
+      );
+    }
+  }
+}
+
+/** @deprecated Alias for parseIdlFileV1. */
+export const parseIdlFile = parseIdlFileV1;
+
+async function readIdlFile(idlPath: string): Promise<string> {
+  try {
+    return await fs.promises.readFile(idlPath, 'utf-8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      throw new CliError(`IDL file not found: ${idlPath}`, 'IDL_FILE_NOT_FOUND');
+    }
+    throw new CliError(`Failed to read IDL file: ${idlPath}`, 'IDL_FILE_ERROR');
+  }
+}
+
+/** Runtime check: is this a v2 SailsProgram instance? */
+export function isSailsV2(sails: LoadedSails): sails is SailsProgram {
+  return sails instanceof SailsProgram;
+}
+
+/**
+ * Return the IDL version of a loaded Sails instance.
+ */
+export function getSailsVersion(sails: LoadedSails): 'v1' | 'v2' {
+  return isSailsV2(sails) ? 'v2' : 'v1';
+}
+
+/**
+ * Get the type-name → user-defined-type map for a loaded Sails instance.
+ *
+ * - v1: reads `sails._program.types` (existing hex-bytes.ts pattern).
+ * - v2: reads `(program as any)._doc.program.types` (private but stable across
+ *   the 1.0.0-beta line; mirrors v1's private access pattern).
+ *
+ * Returns an empty map if the IDL has no user-defined types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function describeType(typeDef: any): string {
+export function getRegistryTypes(sails: LoadedSails): Map<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const map = new Map<string, any>();
+  if (isSailsV2(sails)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const doc = (sails as any)._doc;
+    // Ambient types on the program block (rare).
+    const programTypes = doc?.program?.types as Array<{ name: string }> | undefined;
+    if (programTypes) for (const t of programTypes) map.set(t.name, t);
+    // Per-service types (where IDL v2 most commonly declares them).
+    const services = doc?.services as Array<{ types?: Array<{ name: string }> }> | undefined;
+    if (services) {
+      for (const svc of services) {
+        if (svc.types) for (const t of svc.types) map.set(t.name, t);
+      }
+    }
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const types = (sails as any)._program?.types as Array<{ name: string; def: unknown }> | undefined;
+    if (types) {
+      for (const t of types) map.set(t.name, t.def);
+    }
+  }
+  return map;
+}
+
+/**
+ * Describe a Sails type definition as a human-readable string.
+ *
+ * v1 walks the TypeDef accessor shape (isPrimitive/asVec/asStruct/…).
+ * v2 delegates to SailsProgram.typeResolver.getTypeDeclString which already
+ * produces a canonical string representation (e.g. "Option<Vec<u8>>").
+ */
+export function describeType(sails: LoadedSails, typeDef: unknown): string {
+  if (isSailsV2(sails)) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return sails.typeResolver.getTypeDeclString(typeDef as any);
+    } catch {
+      return 'unknown';
+    }
+  }
+  return describeTypeV1(typeDef);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function describeTypeV1(typeDef: any): string {
   if (typeDef.isPrimitive) {
     const p = typeDef.asPrimitive;
     if (p.isBool) return 'bool';
@@ -193,25 +433,25 @@ export function describeType(typeDef: any): string {
     if (p.isNull) return 'null';
     return 'primitive';
   }
-  if (typeDef.isOptional) return `Option<${describeType(typeDef.asOptional.def)}>`;
-  if (typeDef.isVec) return `Vec<${describeType(typeDef.asVec.def)}>`;
+  if (typeDef.isOptional) return `Option<${describeTypeV1(typeDef.asOptional.def)}>`;
+  if (typeDef.isVec) return `Vec<${describeTypeV1(typeDef.asVec.def)}>`;
   if (typeDef.isResult) {
-    return `Result<${describeType(typeDef.asResult.ok.def)}, ${describeType(typeDef.asResult.err.def)}>`;
+    return `Result<${describeTypeV1(typeDef.asResult.ok.def)}, ${describeTypeV1(typeDef.asResult.err.def)}>`;
   }
   if (typeDef.isMap) {
-    return `Map<${describeType(typeDef.asMap.key.def)}, ${describeType(typeDef.asMap.value.def)}>`;
+    return `Map<${describeTypeV1(typeDef.asMap.key.def)}, ${describeTypeV1(typeDef.asMap.value.def)}>`;
   }
   if (typeDef.isFixedSizeArray) {
-    return `[${describeType(typeDef.asFixedSizeArray.def)}; ${typeDef.asFixedSizeArray.len}]`;
+    return `[${describeTypeV1(typeDef.asFixedSizeArray.def)}; ${typeDef.asFixedSizeArray.len}]`;
   }
   if (typeDef.isStruct) {
     const struct = typeDef.asStruct;
     if (struct.isTuple) {
-      const fields = struct.fields.map((f: { def: unknown }) => describeType(f.def));
+      const fields = struct.fields.map((f: { def: unknown }) => describeTypeV1(f.def));
       return `(${fields.join(', ')})`;
     }
     const fields = struct.fields.map(
-      (f: { name: string; def: unknown }) => `${f.name}: ${describeType(f.def)}`,
+      (f: { name: string; def: unknown }) => `${f.name}: ${describeTypeV1(f.def)}`,
     );
     return `{ ${fields.join(', ')} }`;
   }
@@ -219,7 +459,7 @@ export function describeType(typeDef: any): string {
     const variants = typeDef.asEnum.variants.map(
       (v: { name: string; def: { isPrimitive?: boolean; asPrimitive?: { isNull?: boolean } } }) => {
         if (v.def?.isPrimitive && v.def.asPrimitive?.isNull) return v.name;
-        return `${v.name}(${describeType(v.def)})`;
+        return `${v.name}(${describeTypeV1(v.def)})`;
       },
     );
     return variants.join(' | ');
@@ -228,42 +468,69 @@ export function describeType(typeDef: any): string {
   return 'unknown';
 }
 
+/** Minimal shape that both v1 Sails.services[X] and v2 SailsProgram.services[X] satisfy. */
+interface ServiceLike {
+  functions: Record<string, FuncLike>;
+  queries: Record<string, FuncLike>;
+  events: Record<string, EventLike>;
+}
+interface FuncLike {
+  args: Array<{ name: string; typeDef: unknown }>;
+  returnTypeDef: unknown;
+  docs?: string;
+}
+interface EventLike {
+  typeDef: unknown;
+  /** Pre-rendered type string (v2) or undefined (v1). Preferred when present. */
+  type?: unknown;
+  docs?: string;
+}
+
 /**
  * Build a structured description of all services in a Sails program.
+ * Shape is identical across v1 and v2 for consumers like the discover command.
  */
-export function describeSailsProgram(sails: Sails): Record<string, unknown> {
+export function describeSailsProgram(sails: LoadedSails): Record<string, unknown> {
   const services: Record<string, unknown> = {};
+  const allServices = sails.services as Record<string, ServiceLike>;
 
-  for (const [serviceName, service] of Object.entries(sails.services)) {
+  for (const [serviceName, service] of Object.entries(allServices)) {
     const functions: Record<string, unknown> = {};
     const queries: Record<string, unknown> = {};
     const events: Record<string, unknown> = {};
 
     for (const [funcName, func] of Object.entries(service.functions)) {
       functions[funcName] = {
-        args: func.args.map((a: { name: string; typeDef: unknown }) => ({
+        args: func.args.map((a) => ({
           name: a.name,
-          type: describeType(a.typeDef),
+          type: describeType(sails, a.typeDef),
         })),
-        returnType: describeType(func.returnTypeDef),
+        returnType: describeType(sails, func.returnTypeDef),
         docs: func.docs || null,
       };
     }
 
     for (const [queryName, query] of Object.entries(service.queries)) {
       queries[queryName] = {
-        args: query.args.map((a: { name: string; typeDef: unknown }) => ({
+        args: query.args.map((a) => ({
           name: a.name,
-          type: describeType(a.typeDef),
+          type: describeType(sails, a.typeDef),
         })),
-        returnType: describeType(query.returnTypeDef),
+        returnType: describeType(sails, query.returnTypeDef),
         docs: query.docs || null,
       };
     }
 
     for (const [eventName, event] of Object.entries(service.events)) {
+      // v2 events expose `.type` as a pre-rendered string from the
+      // TypeResolver (see sails-idl-v2.ts); prefer it when available.
+      // v1 events have no such property — fall back to walking `.typeDef`.
+      const typeStr =
+        typeof event.type === 'string'
+          ? event.type
+          : describeType(sails, event.typeDef);
       events[eventName] = {
-        type: describeType(event.typeDef),
+        type: typeStr,
         docs: event.docs || null,
       };
     }

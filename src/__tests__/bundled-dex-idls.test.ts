@@ -1,12 +1,18 @@
 import { SailsIdlParser } from 'sails-js-parser';
 import { Sails } from 'sails-js';
 import { DEX_FACTORY_IDL, DEX_PAIR_IDL } from '../idl/bundled-idls';
+import { detectIdlVersion, getSailsVersion } from '../services/sails';
 
 describe('bundled DEX IDLs', () => {
   let parser: SailsIdlParser;
 
   beforeAll(async () => {
     parser = await SailsIdlParser.new();
+  });
+
+  it('are detected as IDL v1 (no !@sails: directive)', () => {
+    expect(detectIdlVersion(DEX_FACTORY_IDL)).toBe('unknown');
+    expect(detectIdlVersion(DEX_PAIR_IDL)).toBe('unknown');
   });
 
   describe('DEX_FACTORY_IDL', () => {
@@ -19,6 +25,10 @@ describe('bundled DEX IDLs', () => {
 
     it('parses without error', () => {
       expect(sails.services).toBeDefined();
+    });
+
+    it('is a v1 Sails instance', () => {
+      expect(getSailsVersion(sails)).toBe('v1');
     });
 
     it('has a Factory service', () => {

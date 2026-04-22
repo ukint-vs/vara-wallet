@@ -3,9 +3,9 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
-import { parseIdlFile } from '../services/sails';
+import { parseIdlFileAuto } from '../services/sails';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgs } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto } from '../utils';
 
 export interface InitOptions {
   payload: string;
@@ -25,7 +25,7 @@ export async function resolveInitPayload(options: InitOptions): Promise<string> 
     throw new CliError('--payload and --idl are mutually exclusive. Use --idl with --args for Sails encoding, or --payload for raw hex.', 'MUTUALLY_EXCLUSIVE_OPTIONS');
   }
 
-  const sails = await parseIdlFile(options.idl);
+  const sails = await parseIdlFileAuto(options.idl);
   const ctors = sails.ctors;
   if (!ctors || Object.keys(ctors).length === 0) {
     throw new CliError('IDL has no constructors defined', 'NO_CONSTRUCTORS');
@@ -72,7 +72,7 @@ export async function resolveInitPayload(options: InitOptions): Promise<string> 
   }
 
   verbose(`Encoding constructor "${initName}" with ${args.length} arg(s)`);
-  args = coerceArgs(args, ctor.args || [], sails);
+  args = coerceArgsAuto(args, ctor.args || [], sails);
   try {
     return ctor.encodePayload(...args);
   } catch (err) {
