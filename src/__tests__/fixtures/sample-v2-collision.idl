@@ -1,0 +1,36 @@
+
+!@sails: 1.0.0-beta.1
+
+// Collision fixture: two services declare a same-named `Packet` struct
+// with different byte-field lengths. Used to verify that coerceArgsV2
+// scopes lookups by service (see Finding A in the PR review).
+
+service A@0xa667a3b129e57f5c {
+    functions {
+        Set(p: Packet);
+    }
+    types {
+        struct Packet {
+            payload: [u8; 4],
+        }
+    }
+}
+
+service B@0x8b02064fa4f2f602 {
+    functions {
+        Set(p: Packet);
+    }
+    types {
+        struct Packet {
+            payload: [u8; 8],
+        }
+    }
+}
+
+program Demo {
+    constructors { Default(); }
+    services {
+        A@0xa667a3b129e57f5c,
+        B@0x8b02064fa4f2f602,
+    }
+}

@@ -1,0 +1,29 @@
+
+!@sails: 1.0.0-beta.1
+
+// Generics fixture: exercises type_param substitution in the v2
+// hex-bytes walker (see Finding B in the PR review). A generic
+// struct `Envelope<T>` used as `Envelope<[u8]>` and `Envelope<[u8; 8]>`
+// must coerce the payload hex into bytes; without substitution the
+// walker would leave hex strings uncoerced because it'd recurse into
+// the literal type_param `T` rather than the caller's chosen type.
+
+service Gen@0xd80c9eabb287b035 {
+    functions {
+        SetPayload(p: Envelope<[u8]>);
+        SetFixed(p: Envelope<[u8; 8]>);
+    }
+    types {
+        struct Envelope<T> {
+            id: u32,
+            payload: T,
+        }
+    }
+}
+
+program Demo {
+    constructors { Default(); }
+    services {
+        Gen@0xd80c9eabb287b035,
+    }
+}

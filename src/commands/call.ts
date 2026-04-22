@@ -1,13 +1,10 @@
 import { Command } from 'commander';
-import type { Sails, SailsProgram } from 'sails-js';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSailsAuto, describeSailsProgram } from '../services/sails';
+import { loadSailsAuto, describeSailsProgram, type LoadedSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto } from '../utils';
-
-type LoadedSails = Sails | SailsProgram;
 
 export function registerCallCommand(program: Command): void {
   program
@@ -111,7 +108,7 @@ async function executeQuery(
   verbose(`Executing query: ${serviceName}/${methodName}`);
 
   const query = sails.services[serviceName].queries[methodName];
-  args = coerceArgsAuto(args, query.args, sails);
+  args = coerceArgsAuto(args, query.args, sails, serviceName);
   const queryBuilder = query(...args);
 
   // Set origin address if available
@@ -149,7 +146,7 @@ async function executeFunction(
   }
 
   const func = sails.services[serviceName].functions[methodName];
-  args = coerceArgsAuto(args, func.args, sails);
+  args = coerceArgsAuto(args, func.args, sails, serviceName);
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);

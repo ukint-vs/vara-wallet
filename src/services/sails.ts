@@ -145,9 +145,16 @@ export async function loadSailsV2(
 /**
  * Load a Sails IDL, auto-detecting version.
  *
- * Detection strategy: text marker first, then parser-try fallback.
- * If the IDL has no `!@sails:` directive, we try v1 first (no WASM init cost)
- * and fall back to v2 on parse failure, preserving both error messages.
+ * Detection strategy:
+ *   1. If the IDL source contains a `!@sails:` directive, try v2 first.
+ *      On parse failure, fall back to v1 — the directive match is
+ *      permissive (matches on any line) so a v1 IDL that happens to
+ *      embed `!@sails:` in a doc comment still gets a clean load.
+ *   2. Otherwise try v1 first (no WASM init cost), fall back to v2 on
+ *      parse failure.
+ *
+ * When both parsers reject the input, the combined error preserves
+ * both messages so users can see which parser complained about what.
  */
 export async function loadSailsAuto(
   api: GearApi,
@@ -163,21 +170,21 @@ export async function loadSailsAuto(
   const idlString = await resolveIdl(api, { ...options, programId }, null);
   const version = detectIdlVersion(idlString);
 
-  if (version === 'v2') {
-    return buildV2FromIdl(api, programId, idlString);
-  }
+  const primary = version === 'v2' ? buildV2FromIdl : buildV1FromIdl;
+  const secondary = version === 'v2' ? buildV1FromIdl : buildV2FromIdl;
+  const primaryLabel = version === 'v2' ? 'v2' : 'v1';
+  const secondaryLabel = version === 'v2' ? 'v1' : 'v2';
 
-  // 'unknown' — try v1 first (no WASM init), fall back to v2.
   try {
-    return await buildV1FromIdl(api, programId, idlString);
-  } catch (v1Err) {
+    return await primary(api, programId, idlString);
+  } catch (primaryErr) {
     try {
-      return await buildV2FromIdl(api, programId, idlString);
-    } catch (v2Err) {
-      const v1Msg = v1Err instanceof Error ? v1Err.message : String(v1Err);
-      const v2Msg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+      return await secondary(api, programId, idlString);
+    } catch (secondaryErr) {
+      const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+      const secondaryMsg = secondaryErr instanceof Error ? secondaryErr.message : String(secondaryErr);
       throw new CliError(
-        `IDL parse failed on both v1 and v2 parsers.\n  v1: ${v1Msg}\n  v2: ${v2Msg}`,
+        `IDL parse failed on both v1 and v2 parsers.\n  ${primaryLabel}: ${primaryMsg}\n  ${secondaryLabel}: ${secondaryMsg}`,
         'IDL_PARSE_ERROR',
       );
     }
@@ -340,38 +347,43 @@ export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
 /**
  * Parse a local IDL file, auto-detecting version.
  * Used by offline flows (ctor encoding, encode/decode commands).
+ *
+ * Uses the same directive-first-with-fallback strategy as `loadSailsAuto`:
+ * when the `!@sails:` directive is present we try v2 first but fall back
+ * to v1 on parse failure (the directive match is permissive, so a v1 IDL
+ * with the directive text in a doc comment still loads). When the
+ * directive is absent we try v1 first, fall back to v2.
  */
+async function buildV1FromIdlString(idlString: string): Promise<Sails> {
+  const parser = await getV1Parser();
+  const sails = new Sails(parser);
+  sails.parseIdl(idlString);
+  return sails;
+}
+async function buildV2FromIdlString(idlString: string): Promise<SailsProgram> {
+  const parser = await getV2Parser();
+  return new SailsProgram(parser.parse(idlString));
+}
+
 export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
   const idlString = await readIdlFile(idlPath);
   const version = detectIdlVersion(idlString);
 
-  if (version === 'v2') {
-    const parser = await getV2Parser();
-    try {
-      return new SailsProgram(parser.parse(idlString));
-    } catch (err) {
-      throw new CliError(
-        `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
-        'IDL_PARSE_ERROR',
-      );
-    }
-  }
+  const primary = version === 'v2' ? buildV2FromIdlString : buildV1FromIdlString;
+  const secondary = version === 'v2' ? buildV1FromIdlString : buildV2FromIdlString;
+  const primaryLabel = version === 'v2' ? 'v2' : 'v1';
+  const secondaryLabel = version === 'v2' ? 'v1' : 'v2';
 
-  // 'unknown' — try v1 first, fall back to v2.
   try {
-    const parser = await getV1Parser();
-    const sails = new Sails(parser);
-    sails.parseIdl(idlString);
-    return sails;
-  } catch (v1Err) {
+    return await primary(idlString);
+  } catch (primaryErr) {
     try {
-      const parser = await getV2Parser();
-      return new SailsProgram(parser.parse(idlString));
-    } catch (v2Err) {
-      const v1Msg = v1Err instanceof Error ? v1Err.message : String(v1Err);
-      const v2Msg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+      return await secondary(idlString);
+    } catch (secondaryErr) {
+      const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+      const secondaryMsg = secondaryErr instanceof Error ? secondaryErr.message : String(secondaryErr);
       throw new CliError(
-        `IDL parse failed on both v1 and v2 parsers.\n  v1: ${v1Msg}\n  v2: ${v2Msg}`,
+        `IDL parse failed on both v1 and v2 parsers.\n  ${primaryLabel}: ${primaryMsg}\n  ${secondaryLabel}: ${secondaryMsg}`,
         'IDL_PARSE_ERROR',
       );
     }
@@ -406,31 +418,62 @@ export function getSailsVersion(sails: LoadedSails): 'v1' | 'v2' {
 }
 
 /**
+ * Per-instance cache of resolved type maps keyed by service scope.
+ * Scoping matters for v2 because same-name types in different services
+ * would otherwise collide in a flat global map.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const registryTypesCache = new WeakMap<LoadedSails, Map<string, Map<string, any>>>();
+
+/**
  * Get the type-name → user-defined-type map for a loaded Sails instance.
  *
- * - v1: reads `sails._program.types` (existing hex-bytes.ts pattern).
- * - v2: merges both `_doc.program.types` (ambient, rare) and
- *   `_doc.services[i].types` (per-service, the common case in IDL v2).
- *   Both reach into private fields — stable within the 1.0.0-beta line
- *   and mirrors v1's access pattern.
+ * - v1: reads `sails._program.types` (global flat map; v1 has no service
+ *   type scoping). The `serviceName` arg is ignored for v1.
+ * - v2: types live on `_doc.program.types` (program-level, rare) and on
+ *   `_doc.services[i].types` (per-service, the common case). When
+ *   `serviceName` is provided, the result includes program-level types
+ *   PLUS only that service's types — this avoids cross-service
+ *   collisions when two services declare the same-named struct/enum.
+ *   When `serviceName` is omitted, all service types are flattened
+ *   (caller accepts the collision risk; useful for global lookups like
+ *   describeSailsProgram iteration).
+ *
+ * Both branches reach into private fields — stable within the
+ * 1.0.0-beta line and mirrors v1's access pattern. Results are cached
+ * per (instance, scope) pair via a WeakMap so subsequent calls are O(1).
  *
  * Returns an empty map if the IDL has no user-defined types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getRegistryTypes(sails: LoadedSails): Map<string, any> {
+export function getRegistryTypes(sails: LoadedSails, serviceName?: string): Map<string, any> {
+  const cacheKey = serviceName ?? '__all__';
+  let scopedCache = registryTypesCache.get(sails);
+  if (!scopedCache) {
+    scopedCache = new Map();
+    registryTypesCache.set(sails, scopedCache);
+  }
+  const cached = scopedCache.get(cacheKey);
+  if (cached) return cached;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const map = new Map<string, any>();
   if (isSailsV2(sails)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const doc = (sails as any)._doc;
-    // Ambient types on the program block (rare).
+    // Program-level types (ambient — visible to every service + ctors).
     const programTypes = doc?.program?.types as Array<{ name: string }> | undefined;
     if (programTypes) for (const t of programTypes) map.set(t.name, t);
-    // Per-service types (where IDL v2 most commonly declares them).
-    const services = doc?.services as Array<{ types?: Array<{ name: string }> }> | undefined;
+    // Service-local types.
+    const services = doc?.services as Array<{ name?: string; types?: Array<{ name: string }> }> | undefined;
     if (services) {
-      for (const svc of services) {
-        if (svc.types) for (const t of svc.types) map.set(t.name, t);
+      if (serviceName) {
+        const target = services.find((s) => s.name === serviceName);
+        if (target?.types) for (const t of target.types) map.set(t.name, t);
+      } else {
+        for (const svc of services) {
+          if (svc.types) for (const t of svc.types) map.set(t.name, t);
+        }
       }
     }
   } else {
@@ -440,6 +483,7 @@ export function getRegistryTypes(sails: LoadedSails): Map<string, any> {
       for (const t of types) map.set(t.name, t.def);
     }
   }
+  scopedCache.set(cacheKey, map);
   return map;
 }
 
@@ -540,6 +584,53 @@ interface EventLike {
 }
 
 /**
+ * Render a single event's payload type as a human-readable string.
+ *
+ * sails-js v2 puts the pre-rendered string in `event.type` for unit
+ * variants (`'Null'`) and single-unnamed payloads (`'u32'`). For events
+ * with named fields (`Walked { from: (i32,i32), to: (i32,i32) }`)
+ * `event.type` is a struct-def object and `event.typeDef` is the raw
+ * `IServiceEvent` — neither is a TypeDecl the TypeResolver can stringify.
+ * We walk `typeDef.fields` explicitly and render a `{name: type, ...}`
+ * struct form that matches the v1 output style.
+ *
+ * v1 events have no `.type` field; the v1 walker handles them via
+ * `describeType(sails, event.typeDef)`.
+ */
+function renderEventType(sails: LoadedSails, event: EventLike): string {
+  // v2: fast path when the library already stringified the type.
+  if (typeof event.type === 'string') return event.type;
+
+  // v2 named-field case: typeDef is IServiceEvent with a `fields` array.
+  if (isSailsV2(sails)) {
+    const typeDef = event.typeDef as { fields?: Array<{ name?: string; type: unknown }> } | undefined;
+    const fields = typeDef?.fields;
+    if (Array.isArray(fields) && fields.length > 0) {
+      // All fields named: render as struct.
+      if (fields.every((f) => typeof f.name === 'string' && f.name.length > 0)) {
+        const parts = fields.map((f) => `${f.name}: ${describeType(sails, f.type)}`);
+        return `{ ${parts.join(', ')} }`;
+      }
+      // All fields unnamed: render as tuple.
+      if (fields.every((f) => !f.name)) {
+        const parts = fields.map((f) => describeType(sails, f.type));
+        return parts.length === 1 ? parts[0] : `(${parts.join(', ')})`;
+      }
+      // Mixed: fall back to struct form, skipping unnamed slots.
+      const parts = fields.map((f, i) => `${f.name ?? `_${i}`}: ${describeType(sails, f.type)}`);
+      return `{ ${parts.join(', ')} }`;
+    }
+    // Empty fields on a v2 event means unit variant; library usually
+    // emits 'Null' as the pre-rendered string so we shouldn't hit this
+    // branch, but be defensive.
+    return 'Null';
+  }
+
+  // v1 fallback: walk the v1 TypeDef accessor shape.
+  return describeType(sails, event.typeDef);
+}
+
+/**
  * Build a structured description of all services in a Sails program.
  * Shape is identical across v1 and v2 for consumers like the discover command.
  */
@@ -575,15 +666,8 @@ export function describeSailsProgram(sails: LoadedSails): Record<string, unknown
     }
 
     for (const [eventName, event] of Object.entries(service.events)) {
-      // v2 events expose `.type` as a pre-rendered string from the
-      // TypeResolver (see sails-idl-v2.ts); prefer it when available.
-      // v1 events have no such property — fall back to walking `.typeDef`.
-      const typeStr =
-        typeof event.type === 'string'
-          ? event.type
-          : describeType(sails, event.typeDef);
       events[eventName] = {
-        type: typeStr,
+        type: renderEventType(sails, event),
         docs: event.docs || null,
       };
     }

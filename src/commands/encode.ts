@@ -1,12 +1,9 @@
 import { Command } from 'commander';
 import { ProgramMetadata } from '@gear-js/api';
-import type { Sails, SailsProgram } from 'sails-js';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
-import { loadSailsAuto, parseIdlFileAuto, isSailsV2 } from '../services/sails';
+import { loadSailsAuto, parseIdlFileAuto, isSailsV2, type LoadedSails } from '../services/sails';
 import { output, verbose, CliError, tryHexToText, coerceArgsAuto } from '../utils';
-
-type LoadedSails = Sails | SailsProgram;
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -59,7 +56,7 @@ export function registerEncodeCommand(program: Command): void {
         }
 
         const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
-        const args = coerceArgsAuto(rawArgs, func.args, sails);
+        const args = coerceArgsAuto(rawArgs, func.args, sails, serviceName);
         const encoded = func.encodePayload(...args);
 
         output({ encoded });
