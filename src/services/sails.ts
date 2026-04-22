@@ -8,27 +8,68 @@ import { readConfig } from './config';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
 export type LoadedSails = Sails | SailsProgram;
-export type IdlVersion = 'v1' | 'v2' | 'unknown';
+/**
+ * Outcome of the text-level IDL version probe.
+ *
+ * - `'v2'` — the IDL source starts with a `!@sails:` directive.
+ * - `'unknown'` — no directive present. v1 IDLs, malformed IDLs, and
+ *   (hypothetically) a v2 IDL served without the header all land here;
+ *   callers disambiguate by trying the v1 parser first and falling
+ *   back to v2.
+ *
+ * Note: the probe never returns `'v1'` directly because v1 IDLs carry
+ * no version marker. Treating the v1 case as `'unknown'` keeps the
+ * parser-try fallback as the single source of truth.
+ */
+export type IdlVersion = 'v2' | 'unknown';
 
 let v1ParserPromise: Promise<V1Parser> | null = null;
 let v2ParserPromise: Promise<V2Parser> | null = null;
 
-async function getV1Parser(): Promise<V1Parser> {
-  if (!v1ParserPromise) {
-    v1ParserPromise = V1Parser.new();
+/**
+ * Lazily instantiate a parser and cache the in-flight promise so callers
+ * share one initialization. If init rejects we reset the slot to null so
+ * the next caller can retry — otherwise a transient WASM-decompression
+ * hiccup would leave the process permanently wedged on a rejected
+ * promise.
+ */
+async function memoParser<T>(slot: () => Promise<T> | null, set: (p: Promise<T> | null) => void, init: () => Promise<T>): Promise<T> {
+  let promise = slot();
+  if (!promise) {
+    promise = init();
+    set(promise);
+    promise.catch(() => set(null));
   }
-  return v1ParserPromise;
+  return promise;
+}
+
+async function getV1Parser(): Promise<V1Parser> {
+  return memoParser(
+    () => v1ParserPromise,
+    (p) => { v1ParserPromise = p; },
+    () => V1Parser.new(),
+  );
 }
 
 async function getV2Parser(): Promise<V2Parser> {
-  if (!v2ParserPromise) {
-    v2ParserPromise = (async () => {
+  return memoParser(
+    () => v2ParserPromise,
+    (p) => { v2ParserPromise = p; },
+    async () => {
       const parser = new V2Parser();
       await parser.init();
       return parser;
-    })();
-  }
-  return v2ParserPromise;
+    },
+  );
+}
+
+/**
+ * Test-only helper: clear the cached parser promises. Not exported via
+ * utils/index.ts because callers outside of tests should never need it.
+ */
+export function _resetParserCache(): void {
+  v1ParserPromise = null;
+  v2ParserPromise = null;
 }
 
 /**
@@ -125,13 +166,8 @@ export async function loadSailsAuto(
   if (version === 'v2') {
     return buildV2FromIdl(api, programId, idlString);
   }
-  if (version === 'v1') {
-    // Cannot currently happen — detectIdlVersion never returns 'v1' explicitly.
-    // Reserved for future expansion if upstream adds a v1 marker.
-    return buildV1FromIdl(api, programId, idlString);
-  }
 
-  // 'unknown' — try v1 first, fall back to v2.
+  // 'unknown' — try v1 first (no WASM init), fall back to v2.
   try {
     return await buildV1FromIdl(api, programId, idlString);
   } catch (v1Err) {
@@ -159,8 +195,16 @@ async function buildV1FromIdl(api: GearApi, programId: `0x${string}`, idlString:
 
 async function buildV2FromIdl(api: GearApi, programId: `0x${string}`, idlString: string): Promise<SailsProgram> {
   const parser = await getV2Parser();
-  const doc = parser.parse(idlString);
-  const program = new SailsProgram(doc);
+  let program: SailsProgram;
+  try {
+    const doc = parser.parse(idlString);
+    program = new SailsProgram(doc);
+  } catch (err) {
+    throw new CliError(
+      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
+      'IDL_PARSE_ERROR',
+    );
+  }
   program.setApi(api);
   program.setProgramId(programId);
   return program;
@@ -303,7 +347,14 @@ export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
 
   if (version === 'v2') {
     const parser = await getV2Parser();
-    return new SailsProgram(parser.parse(idlString));
+    try {
+      return new SailsProgram(parser.parse(idlString));
+    } catch (err) {
+      throw new CliError(
+        `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
+        'IDL_PARSE_ERROR',
+      );
+    }
   }
 
   // 'unknown' — try v1 first, fall back to v2.
@@ -358,8 +409,10 @@ export function getSailsVersion(sails: LoadedSails): 'v1' | 'v2' {
  * Get the type-name → user-defined-type map for a loaded Sails instance.
  *
  * - v1: reads `sails._program.types` (existing hex-bytes.ts pattern).
- * - v2: reads `(program as any)._doc.program.types` (private but stable across
- *   the 1.0.0-beta line; mirrors v1's private access pattern).
+ * - v2: merges both `_doc.program.types` (ambient, rare) and
+ *   `_doc.services[i].types` (per-service, the common case in IDL v2).
+ *   Both reach into private fields — stable within the 1.0.0-beta line
+ *   and mirrors v1's access pattern.
  *
  * Returns an empty map if the IDL has no user-defined types.
  */

@@ -3,7 +3,7 @@ import { ProgramMetadata } from '@gear-js/api';
 import type { Sails, SailsProgram } from 'sails-js';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
-import { loadSailsAuto, parseIdlFileAuto } from '../services/sails';
+import { loadSailsAuto, parseIdlFileAuto, isSailsV2 } from '../services/sails';
 import { output, verbose, CliError, tryHexToText, coerceArgsAuto } from '../utils';
 
 type LoadedSails = Sails | SailsProgram;
@@ -139,13 +139,16 @@ export function registerEncodeCommand(program: Command): void {
         try {
           decoded = func.decodeResult(hex as `0x${string}`);
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
           // v2 decodeResult expects a 16-byte SailsMessageHeader prefix at the
           // start of the bytes (see sails-js v1.0.0-beta.1 sails-idl-v2.ts).
-          // Surface a clean error so users know what input shape is expected.
-          const msg = err instanceof Error ? err.message : String(err);
+          // Surface the hint only when we know the IDL is v2 — v1 users
+          // would find the header reference misleading.
+          const hint = isSailsV2(sails)
+            ? '\nIf this is a v2 reply, ensure the hex includes the 16-byte SailsMessageHeader prefix that reply messages carry.'
+            : '';
           throw new CliError(
-            `Failed to decode payload: ${msg}\n` +
-            'If this is a v2 IDL, ensure the hex includes the 16-byte SailsMessageHeader prefix that reply messages carry.',
+            `Failed to decode payload: ${msg}${hint}`,
             'DECODE_ERROR',
           );
         }

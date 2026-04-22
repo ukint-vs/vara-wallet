@@ -17,7 +17,7 @@
     "start": "node dist/app.js",
     "dev": "ts-node --transpile-only src/app.ts",
     "test": "jest",
-    "test:smoke": "node scripts/smoke.mjs",
+    "test:smoke": "npm run build && node scripts/smoke.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"
   },

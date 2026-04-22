@@ -1,4 +1,4 @@
-import type { Sails, SailsProgram } from 'sails-js';
+import { SailsProgram, type Sails } from 'sails-js';
 import { CliError } from './errors';
 
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
@@ -405,8 +405,13 @@ export function coerceHexToBytesV2(
 
 /**
  * Coerce args for a Sails v2 method/constructor call.
- * Reads user-defined types from the v2 `IIdlDoc.program.types` (private field,
- * stable within the 1.0.0-beta line — mirrors v1's _program.types access pattern).
+ *
+ * Merges user-defined types from both possible declaration sites in the
+ * parsed IDL document (private `_doc` field, stable within the
+ * 1.0.0-beta line — mirrors v1's `_program.types` access pattern):
+ *   - `_doc.program.types` — program-level / ambient types (rare).
+ *   - `_doc.services[i].types` — per-service types, which is where v2
+ *     IDLs normally declare struct / enum / alias shapes.
  */
 export function coerceArgsV2(
   args: unknown[],
@@ -451,11 +456,7 @@ export function coerceArgsAuto(
   argDefs: Array<{ name: string; typeDef: any }>,
   sails: Sails | SailsProgram,
 ): unknown[] {
-  // Lazy import to avoid a circular type dependency with sails.ts.
-  // Both SailsProgram and Sails are value-level classes so instanceof works.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { SailsProgram: V2Class } = require('sails-js') as { SailsProgram: new (...args: unknown[]) => SailsProgram };
-  if (sails instanceof V2Class) {
+  if (sails instanceof SailsProgram) {
     return coerceArgsV2(args, argDefs as Array<{ name: string; typeDef: V2TypeDecl }>, sails);
   }
   return coerceArgs(args, argDefs, sails);
