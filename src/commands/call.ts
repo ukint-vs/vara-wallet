@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSailsAuto, describeSailsProgram, type LoadedSails } from '../services/sails';
+import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -49,8 +49,10 @@ export function registerCallCommand(program: Command): void {
       const service = sails.services[serviceName];
       if (!service) {
         const available = Object.keys(sails.services).join(', ');
+        const hint = suggestService(sails, serviceName);
+        const prefix = hint ? `Did you mean: ${hint}/${methodName}? ` : '';
         throw new CliError(
-          `Service "${serviceName}" not found. Available services: ${available}`,
+          `${prefix}Service "${serviceName}" not found. Available services: ${available}`,
           'SERVICE_NOT_FOUND',
         );
       }
@@ -78,8 +80,10 @@ export function registerCallCommand(program: Command): void {
           ...Object.keys(serviceDesc.functions || {}).map((m) => `${serviceName}/${m} (function)`),
           ...Object.keys(serviceDesc.queries || {}).map((m) => `${serviceName}/${m} (query)`),
         ];
+        const hint = suggestMethod(sails, serviceName, methodName);
+        const prefix = hint ? `Did you mean: ${hint}? ` : '';
         throw new CliError(
-          `Method "${methodName}" not found in service "${serviceName}". Available: ${allMethods.join(', ')}`,
+          `${prefix}Method "${methodName}" not found in service "${serviceName}". Available: ${allMethods.join(', ')}`,
           'METHOD_NOT_FOUND',
         );
       }
@@ -120,7 +124,12 @@ async function executeQuery(
     // Use default zero address if no account configured
   }
 
-  const raw = await queryBuilder.call();
+  let raw;
+  try {
+    raw = await queryBuilder.call();
+  } catch (err) {
+    throw classifyProgramError(err);
+  }
   const result = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
 
   output({ result });
@@ -184,12 +193,7 @@ async function executeFunction(
   try {
     response = await result.response();
   } catch (err) {
-    const msg = err instanceof Error
-      ? err.message
-      : typeof err === 'object' && err !== null
-        ? JSON.stringify(err)
-        : String(err);
-    throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
+    throw classifyProgramError(err);
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
