@@ -140,6 +140,21 @@ describe('loadArgsJson', () => {
         expect((err as CliError).code).toBe('INVALID_ARGS');
       }
     });
+
+    it('throws ARGS_FILE_TOO_LARGE when stdin payload exceeds 10 MB', () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      // 10 MB + 1 byte. Use a string of valid-JSON-shaped digits to skip the
+      // empty-input check; size cap should fire before JSON.parse runs.
+      const oversized = '0'.repeat(10 * 1024 * 1024 + 1);
+      __setStdinReaderForTests(() => oversized);
+      try {
+        loadArgsJson({ argsFile: '-' });
+        fail('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(CliError);
+        expect((err as CliError).code).toBe('ARGS_FILE_TOO_LARGE');
+      }
+    });
   });
 
   describe('mutual exclusion', () => {

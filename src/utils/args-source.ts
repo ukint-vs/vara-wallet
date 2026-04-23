@@ -163,20 +163,36 @@ function readStdinSync(): string {
       'STDIN_IS_TTY',
     );
   }
+  let raw: string;
   try {
-    return _stdinReader();
+    raw = _stdinReader();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new CliError(`Failed to read stdin: ${msg}`, 'ARGS_FILE_READ_ERROR');
   }
+  // Mirror the file-path 10 MB cap so a runaway pipe cannot OOM the process.
+  // Checked post-read because `fs.readFileSync(0)` does not expose a size
+  // ahead of time; the bytes are already buffered, but rejecting here still
+  // prevents downstream JSON.parse from amplifying memory usage.
+  if (raw.length > MAX_ARGS_FILE_BYTES) {
+    throw new CliError(
+      `Stdin args input too large (${raw.length} bytes, max ${MAX_ARGS_FILE_BYTES}).`,
+      'ARGS_FILE_TOO_LARGE',
+    );
+  }
+  return raw;
 }
 
 /**
- * Drop the trailing " in JSON at position N" tail from a SyntaxError
- * message — we surface position separately above. Handles both Node 20
- * (`... at position N`) and Node 22+ (`... at position N (line L column C)`)
- * formats.
+ * Drop the trailing position tail from a SyntaxError message — we surface
+ * position separately above. Handles all observed Node formats:
+ *  - Node 20:  "... in JSON at position N"
+ *  - Node 22+: "... in JSON at position N (line L column C)"
+ *  - Node 22+: "... after JSON at position N (line L column C)"
+ *    (no " in JSON" prefix; e.g. "Unexpected non-whitespace character after
+ *    JSON at position 5")
+ * The " in JSON" segment is therefore optional in this regex.
  */
 function stripPositionTail(msg: string): string {
-  return msg.replace(/\s+in JSON at position \d+(?:\s*\(line \d+ column \d+\))?\s*$/, '');
+  return msg.replace(/\s+(?:in JSON\s+)?at position \d+(?:\s*\(line \d+ column \d+\))?\s*$/, '');
 }
