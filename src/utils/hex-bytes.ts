@@ -1,8 +1,10 @@
 import { SailsProgram, type Sails } from 'sails-js';
 import { CliError } from './errors';
+import { addressToHex } from './address';
 import { getRegistryTypes } from '../services/sails';
 
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
+const ACTOR_ID_HEX_RE = /^0x[0-9a-fA-F]{64}$/;
 
 /**
  * Check if a typeDef represents `vec u8`.
@@ -68,6 +70,25 @@ function hexToBytes(value: string, fieldHint?: string): number[] {
  * the value unchanged if it isn't a hex string (so downstream encoders
  * can accept pre-decoded bytes).
  */
+/**
+ * Coerce an ActorId arg: accept canonical 32-byte hex as-is (byte-identical
+ * with pre-ActorId-SS58 behavior), or SS58 via `addressToHex`. Non-string
+ * values pass through so downstream encoders can accept pre-decoded shapes
+ * (e.g. `number[]` of length 32).
+ */
+function tryActorIdToHex(value: unknown, fieldHint?: string): unknown {
+  if (typeof value !== 'string') return value;
+  if (ACTOR_ID_HEX_RE.test(value)) return value;
+  try {
+    return addressToHex(value);
+  } catch {
+    throw new CliError(
+      `Invalid ActorId${fieldHint ? ` for "${fieldHint}"` : ''}: "${value}". Expected hex (0x… 64 chars) or SS58 address.`,
+      'INVALID_ADDRESS',
+    );
+  }
+}
+
 function tryHexToBytes(value: unknown, fieldHint?: string, expectedLen?: number): unknown {
   if (!isNonEmptyHex(value)) return value;
   const bytes = hexToBytes(value, fieldHint);
@@ -96,6 +117,11 @@ export function coerceHexToBytes(value: unknown, typeDef: any, typeMap: TypeMap,
     const resolved = typeMap.get(typeDef.asUserDefined.name);
     if (!resolved) return value; // Unknown type, pass through
     return coerceHexToBytes(value, resolved, typeMap, fieldHint);
+  }
+
+  // ActorId primitive: accept SS58 or canonical hex, normalize to hex.
+  if (typeDef.isPrimitive && typeDef.asPrimitive?.isActorId) {
+    return tryActorIdToHex(value, fieldHint);
   }
 
   // vec u8: convert hex string to byte array
@@ -293,6 +319,12 @@ export function coerceHexToBytesV2(
   // Resolve type_param references at entry so every branch below works
   // on the fully-substituted TypeDecl.
   typeDecl = resolveV2Subs(typeDecl, substitutions);
+
+  // ActorId primitive: accept SS58 or canonical hex, normalize to hex.
+  // MUST precede the `typeof typeDecl === 'string'` fallthrough below —
+  // otherwise 'ActorId' matches as a generic string primitive and the
+  // value returns unchanged, silently swallowing SS58 input.
+  if (typeDecl === 'ActorId') return tryActorIdToHex(value, fieldHint);
 
   // Slice of u8 → bytes
   if (isV2SliceU8(typeDecl)) return tryHexToBytes(value, fieldHint);

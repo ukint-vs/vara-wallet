@@ -234,6 +234,48 @@ describe('coerceHexToBytes', () => {
   });
 });
 
+describe('actor_id (ActorId)', () => {
+  const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  const ALICE_HEX = '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+  const EMPTY_MAP: TypeMap = new Map();
+  let actorIdDef: unknown;
+
+  beforeAll(async () => {
+    const { sails } = await setup('service S { Test : (who: actor_id) -> bool; };');
+    actorIdDef = getArgTypeDef(sails, 'S', 'Test', 0);
+  });
+
+  it('accepts canonical hex unchanged', () => {
+    expect(coerceHexToBytes(ALICE_HEX, actorIdDef, EMPTY_MAP)).toBe(ALICE_HEX);
+  });
+
+  it('converts SS58 to the same hex as the hex path', () => {
+    expect(coerceHexToBytes(ALICE_SS58, actorIdDef, EMPTY_MAP)).toBe(ALICE_HEX);
+  });
+
+  it('throws INVALID_ADDRESS on garbage string', () => {
+    expect(() => coerceHexToBytes('not-an-address', actorIdDef, EMPTY_MAP)).toThrow(/Invalid ActorId/);
+  });
+
+  it('passes through non-string values unchanged (e.g. pre-decoded u8 array)', () => {
+    const preDecoded = Array.from({ length: 32 }, (_, i) => i);
+    expect(coerceHexToBytes(preDecoded, actorIdDef, EMPTY_MAP)).toBe(preDecoded);
+  });
+
+  it('coerces SS58 inside a struct field (walker recursion)', async () => {
+    const { sails, typeMap } = await setup(`
+      type Transfer = struct {
+        to: actor_id,
+        amount: u128,
+      };
+      service S { Send : (t: Transfer) -> bool; };
+    `);
+    const typeDef = getArgTypeDef(sails, 'S', 'Send', 0);
+    const result = coerceHexToBytes({ to: ALICE_SS58, amount: 100 }, typeDef, typeMap);
+    expect(result).toEqual({ to: ALICE_HEX, amount: 100 });
+  });
+});
+
 describe('coerceArgs', () => {
   it('returns empty array for empty args', () => {
     expect(coerceArgs([], [], {})).toEqual([]);
@@ -251,6 +293,16 @@ describe('coerceArgs', () => {
     const args = ['0xaabb'];
     const argDefs = [{ name: 'data', typeDef: {} }];
     expect(coerceArgs(args, argDefs, fakeSails)).toEqual(args);
+  });
+
+  it('coerces SS58 actor_id arg to the same payload as hex', async () => {
+    const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    const ALICE_HEX = '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+    const { sails } = await setup('service S { Test : (who: actor_id) -> bool; };');
+    const func = sails.services['S'].functions['Test'];
+    const fromSs58 = coerceArgs([ALICE_SS58], func.args, sails);
+    const fromHex = coerceArgs([ALICE_HEX], func.args, sails);
+    expect(fromSs58).toEqual(fromHex);
   });
 
   it('gracefully returns args when _program throws', () => {

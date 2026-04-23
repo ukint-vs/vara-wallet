@@ -177,6 +177,51 @@ describe('coerceHexToBytesV2', () => {
   });
 });
 
+describe('ActorId primitive', () => {
+  const ALICE_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  const ALICE_HEX = '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+  const EMPTY_MAP: V2TypeMap = new Map();
+
+  it('accepts canonical hex unchanged', () => {
+    expect(coerceHexToBytesV2(ALICE_HEX, 'ActorId', EMPTY_MAP)).toBe(ALICE_HEX);
+  });
+
+  it('converts SS58 to canonical hex', () => {
+    expect(coerceHexToBytesV2(ALICE_SS58, 'ActorId', EMPTY_MAP)).toBe(ALICE_HEX);
+  });
+
+  it('throws on garbage string', () => {
+    expect(() => coerceHexToBytesV2('not-an-address', 'ActorId', EMPTY_MAP)).toThrow(/Invalid ActorId/);
+  });
+
+  it('passes through non-string unchanged', () => {
+    const preDecoded = Array.from({ length: 32 }, (_, i) => i);
+    expect(coerceHexToBytesV2(preDecoded, 'ActorId', EMPTY_MAP)).toBe(preDecoded);
+  });
+
+  it('coerces SS58 inside a struct field (walker recursion)', () => {
+    const typeMap: V2TypeMap = new Map([
+      [
+        'Transfer',
+        {
+          kind: 'struct',
+          name: 'Transfer',
+          fields: [
+            { name: 'to', type: 'ActorId' },
+            { name: 'amount', type: 'u128' },
+          ],
+        },
+      ],
+    ]);
+    const result = coerceHexToBytesV2(
+      { to: ALICE_SS58, amount: 100 },
+      { kind: 'named', name: 'Transfer' },
+      typeMap,
+    );
+    expect(result).toEqual({ to: ALICE_HEX, amount: 100 });
+  });
+});
+
 describe('coerceArgsV2', () => {
   it('coerces method args based on IDL types', async () => {
     const { program } = await setupProgram();
