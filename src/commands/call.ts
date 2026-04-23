@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
-import { loadSails, describeSailsProgram } from '../services/sails';
+import { loadSailsAuto, describeSailsProgram, type LoadedSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgs } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -41,8 +41,8 @@ export function registerCallCommand(program: Command): void {
       }
       const [serviceName, methodName] = parts;
 
-      // Load Sails
-      const sails = await loadSails(api, { programId, idl: options.idl });
+      // Load Sails (auto-detects v1 vs v2 IDL)
+      const sails = await loadSailsAuto(api, { programId, idl: options.idl });
 
       // Find the service
       const service = sails.services[serviceName];
@@ -99,7 +99,7 @@ export function registerCallCommand(program: Command): void {
 
 async function executeQuery(
   _api: unknown,
-  sails: import('sails-js').Sails,
+  sails: LoadedSails,
   serviceName: string,
   methodName: string,
   args: unknown[],
@@ -108,7 +108,7 @@ async function executeQuery(
   verbose(`Executing query: ${serviceName}/${methodName}`);
 
   const query = sails.services[serviceName].queries[methodName];
-  args = coerceArgs(args, query.args, sails);
+  args = coerceArgsAuto(args, query.args, sails, serviceName);
   const queryBuilder = query(...args);
 
   // Set origin address if available
@@ -126,7 +126,7 @@ async function executeQuery(
 
 async function executeFunction(
   api: import('@gear-js/api').GearApi,
-  sails: import('sails-js').Sails,
+  sails: LoadedSails,
   serviceName: string,
   methodName: string,
   args: unknown[],
@@ -146,7 +146,7 @@ async function executeFunction(
   }
 
   const func = sails.services[serviceName].functions[methodName];
-  args = coerceArgs(args, func.args, sails);
+  args = coerceArgsAuto(args, func.args, sails, serviceName);
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);

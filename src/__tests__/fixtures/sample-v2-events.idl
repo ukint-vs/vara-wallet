@@ -1,0 +1,31 @@
+
+!@sails: 1.0.0-beta.1
+
+// Event-shapes fixture: exercises the three v2 event payload shapes
+// (unit variant, single unnamed payload, named-field struct) in
+// describeSailsProgram's event renderer (see Finding C in the PR
+// review).
+
+service Walker@0x8b8f80fc72de9b90 {
+    events {
+        /// Unit variant event.
+        Stopped,
+        /// Single unnamed payload.
+        StepCount(u32),
+        /// Named-field event — Finding C regression.
+        Walked {
+            from: (i32, i32),
+            to: (i32, i32),
+        },
+    }
+    functions {
+        Walk(dx: i32, dy: i32);
+    }
+}
+
+program Demo {
+    constructors { Default(); }
+    services {
+        Walker@0x8b8f80fc72de9b90,
+    }
+}

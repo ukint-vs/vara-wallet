@@ -1,12 +1,18 @@
 import { SailsIdlParser } from 'sails-js-parser';
 import { Sails } from 'sails-js';
 import { VFT_EXTENDED_IDL, VFT_STANDARD_IDL } from '../idl/bundled-idls';
+import { detectIdlVersion, getSailsVersion } from '../services/sails';
 
 describe('bundled VFT IDLs', () => {
   let parser: SailsIdlParser;
 
   beforeAll(async () => {
     parser = await SailsIdlParser.new();
+  });
+
+  it('are detected as IDL v1 (no !@sails: directive)', () => {
+    expect(detectIdlVersion(VFT_EXTENDED_IDL)).toBe('unknown');
+    expect(detectIdlVersion(VFT_STANDARD_IDL)).toBe('unknown');
   });
 
   describe('VFT_EXTENDED_IDL (single Vft service)', () => {
@@ -19,6 +25,10 @@ describe('bundled VFT IDLs', () => {
 
     it('parses without error', () => {
       expect(sails.services).toBeDefined();
+    });
+
+    it('is a v1 Sails instance', () => {
+      expect(getSailsVersion(sails)).toBe('v1');
     });
 
     it('has a Vft service', () => {

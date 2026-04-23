@@ -1,0 +1,74 @@
+!@sails: 1.0.0-beta.1
+
+// IMPORTANT: the @0x... interface_id after each service name is
+// content-derived by the sails-js v2 parser from the full service
+// signature (name + methods + events + types). If you change any
+// signature below, the parser will reject the file with a
+// "Validation error: service `X` computed interface_id 0x... is
+// not equal to 0x... in IDL" message — copy the computed hex from
+// that error into the corresponding `@0x...` suffix.
+
+/// Byte-heavy service used to exercise the v2 hex-bytes walker and
+/// describe-type-v2 covering primitives, Vec<u8>, [u8; N], structs with
+/// byte fields, enums, options, tuples, and user-defined types.
+service Demo@0xd13dee2d603257ad {
+    functions {
+        /// Echo bytes — tests Vec<u8> + [u8; 32] coercion.
+        Echo(data: [u8], hash: [u8; 32]) -> [u8];
+        /// Store a nested struct — tests struct field recursion + inner bytes.
+        SetPacket(packet: Packet);
+        /// Pass an enum with a byte payload — tests enum variant recursion.
+        SetAction(action: Action);
+        /// Pass an optional struct — tests Option<T> recursion.
+        SetMaybe(maybe: Option<Packet>);
+        /// Return various composite types — tests describeType on nested shapes.
+        @query
+        GetPacket() -> Packet;
+        @query
+        GetMaybe() -> Option<Packet>;
+        @query
+        GetPair() -> (u32, Packet);
+        @query
+        GetResult() -> Result<Packet, String>;
+    }
+    events {
+        /// Unit variant event.
+        Ping,
+        /// Single unnamed payload.
+        PacketStored(Packet),
+        /// Typed payload.
+        Counted(u32),
+    }
+    types {
+        /// Struct with a byte field.
+        struct Packet {
+            id: u32,
+            payload: [u8],
+            tag: [u8; 8],
+        }
+        /// Enum with mixed unit, tuple, and struct-shaped payloads.
+        enum Action {
+            /// Unit variant.
+            Noop,
+            /// Variant with an unnamed payload (single field).
+            Tag([u8; 4]),
+            /// Variant with a struct-shaped payload.
+            Store {
+                key: String,
+                value: [u8],
+            },
+        }
+    }
+}
+
+program DemoV2 {
+    constructors {
+        /// Default constructor — no args.
+        Default();
+        /// Constructor with Option<T> arg.
+        New(initial: Option<u32>);
+    }
+    services {
+        Demo@0xd13dee2d603257ad,
+    }
+}

@@ -2,8 +2,8 @@ import { Command } from 'commander';
 import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
-import { loadSails, parseIdlFile } from '../services/sails';
-import { output, verbose, CliError, tryHexToText, coerceArgs } from '../utils';
+import { loadSailsAuto, parseIdlFileAuto, isSailsV2, type LoadedSails } from '../services/sails';
+import { output, verbose, CliError, tryHexToText, coerceArgsAuto } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -29,14 +29,15 @@ export function registerEncodeCommand(program: Command): void {
       }
 
       if (options.idl && options.method) {
-        // Sails IDL encoding — works offline when no --program is given
-        let sails: import('sails-js').Sails;
+        // Sails IDL encoding — works offline when no --program is given.
+        // Auto-detects IDL v1 vs v2.
+        let sails: LoadedSails;
         if (options.program) {
           const opts = program.optsWithGlobals() as { ws?: string };
           const api = await getApi(opts.ws);
-          sails = await loadSails(api, { programId: options.program, idl: options.idl });
+          sails = await loadSailsAuto(api, { programId: options.program, idl: options.idl });
         } else {
-          sails = await parseIdlFile(options.idl);
+          sails = await parseIdlFileAuto(options.idl);
         }
 
         const parts = options.method.split('/');
@@ -55,7 +56,7 @@ export function registerEncodeCommand(program: Command): void {
         }
 
         const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
-        const args = coerceArgs(rawArgs, func.args, sails);
+        const args = coerceArgsAuto(rawArgs, func.args, sails, serviceName);
         const encoded = func.encodePayload(...args);
 
         output({ encoded });
@@ -114,7 +115,7 @@ export function registerEncodeCommand(program: Command): void {
         const api = await getApi(opts.ws);
         const programId = options.program || '0x0000000000000000000000000000000000000000000000000000000000000000';
 
-        const sails = await loadSails(api, { programId, idl: options.idl });
+        const sails = await loadSailsAuto(api, { programId, idl: options.idl });
 
         const parts = options.method.split('/');
         if (parts.length !== 2) {
@@ -131,7 +132,23 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
-        const decoded = func.decodeResult(hex as `0x${string}`);
+        let decoded: unknown;
+        try {
+          decoded = func.decodeResult(hex as `0x${string}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // v2 decodeResult expects a 16-byte SailsMessageHeader prefix at the
+          // start of the bytes (see sails-js v1.0.0-beta.1 sails-idl-v2.ts).
+          // Surface the hint only when we know the IDL is v2 — v1 users
+          // would find the header reference misleading.
+          const hint = isSailsV2(sails)
+            ? '\nIf this is a v2 reply, ensure the hex includes the 16-byte SailsMessageHeader prefix that reply messages carry.'
+            : '';
+          throw new CliError(
+            `Failed to decode payload: ${msg}${hint}`,
+            'DECODE_ERROR',
+          );
+        }
 
         output({ decoded });
       } else if (options.metadata) {
