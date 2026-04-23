@@ -169,6 +169,15 @@ describe('decodeSailsResult (v2 — Nums fixture)', () => {
         '0x0000000000000000000000000000000000000000000000000000000000000002a',
         'Nums')).toBe('42');
     });
+
+    it('u64+ number input is always stringified (consistent JSON shape)', () => {
+      // Defensive: if any upstream path hands us a small-enough u64 as a
+      // JS number, we still emit a string. Prevents the 53-bit precision
+      // cliff and keeps agents from having to typeof-branch per field.
+      expect(decodeSailsResult(sails, 'u64', 42, 'Nums')).toBe('42');
+      expect(decodeSailsResult(sails, 'u128', 100, 'Nums')).toBe('100');
+      expect(decodeSailsResult(sails, 'U256', 7, 'Nums')).toBe('7');
+    });
   });
 
   describe('Option<u256>', () => {

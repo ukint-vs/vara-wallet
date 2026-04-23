@@ -326,8 +326,15 @@ function isBigIntType(name: string): boolean {
 }
 
 function hexOrBigIntToDecimal(value: unknown): unknown {
+  // Always emit a decimal STRING for 64-bit-and-wider integers, regardless of
+  // input shape. sails-js mostly hands us either a bigint (top-level u64+) or
+  // a hex string (nested via .toJSON()), but some code paths could produce a
+  // plain JS number if the value fits. Mixing number and string output per
+  // call would force every downstream consumer (especially LLM agents) to
+  // typeof-branch on every field. String-everywhere keeps the JSON shape
+  // stable and dodges the 53-bit precision cliff.
   if (typeof value === 'bigint') return value.toString();
-  if (typeof value === 'number') return value; // fits — pass through
+  if (typeof value === 'number') return value.toString();
   if (typeof value === 'string') {
     if (/^-?0x[0-9a-fA-F]+$/.test(value) || /^-?\d+$/.test(value)) {
       try {
