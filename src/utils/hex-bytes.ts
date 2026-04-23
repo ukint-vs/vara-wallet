@@ -32,6 +32,16 @@ function isFixedU8Array(typeDef: any): { match: boolean; len?: number } {
 }
 
 /**
+ * Is `value` a non-empty `0x`-prefixed hex string? Used to gate the
+ * coercion branches — the bare `0x` sentinel passes through unchanged
+ * (tested behavior), and anything else is left for downstream encoders
+ * to validate in context.
+ */
+function isNonEmptyHex(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && value.startsWith('0x') && value.length > 2;
+}
+
+/**
  * Convert a hex string to a byte array, with validation.
  */
 function hexToBytes(value: string, fieldHint?: string): number[] {
@@ -49,6 +59,25 @@ function hexToBytes(value: string, fieldHint?: string): number[] {
     );
   }
   return Array.from(Buffer.from(hex, 'hex'));
+}
+
+/**
+ * If `value` is a `0x`-prefixed hex string, convert it to a byte array.
+ * When `expectedLen` is provided, throw if the decoded length doesn't
+ * match — used by `[u8; N]` and fixed-width array branches. Returns
+ * the value unchanged if it isn't a hex string (so downstream encoders
+ * can accept pre-decoded bytes).
+ */
+function tryHexToBytes(value: unknown, fieldHint?: string, expectedLen?: number): unknown {
+  if (!isNonEmptyHex(value)) return value;
+  const bytes = hexToBytes(value, fieldHint);
+  if (expectedLen !== undefined && bytes.length !== expectedLen) {
+    throw new CliError(
+      `Hex string decodes to ${bytes.length} bytes but [u8; ${expectedLen}] expects ${expectedLen} bytes${fieldHint ? ` for "${fieldHint}"` : ''}`,
+      'INVALID_HEX_BYTES',
+    );
+  }
+  return bytes;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,28 +99,11 @@ export function coerceHexToBytes(value: unknown, typeDef: any, typeMap: TypeMap,
   }
 
   // vec u8: convert hex string to byte array
-  if (isVecU8(typeDef)) {
-    if (typeof value === 'string' && value.startsWith('0x') && value.length > 2) {
-      return hexToBytes(value, fieldHint);
-    }
-    return value;
-  }
+  if (isVecU8(typeDef)) return tryHexToBytes(value, fieldHint);
 
   // [u8; N]: convert hex string to byte array, validate length
   const fixed = isFixedU8Array(typeDef);
-  if (fixed.match) {
-    if (typeof value === 'string' && value.startsWith('0x') && value.length > 2) {
-      const bytes = hexToBytes(value, fieldHint);
-      if (bytes.length !== fixed.len) {
-        throw new CliError(
-          `Hex string decodes to ${bytes.length} bytes but [u8; ${fixed.len}] expects ${fixed.len} bytes${fieldHint ? ` for "${fieldHint}"` : ''}`,
-          'INVALID_HEX_BYTES',
-        );
-      }
-      return bytes;
-    }
-    return value;
-  }
+  if (fixed.match) return tryHexToBytes(value, fieldHint, fixed.len);
 
   // Struct: recurse into each field
   if (typeDef.isStruct && typeof value === 'object' && !Array.isArray(value)) {
@@ -283,28 +295,11 @@ export function coerceHexToBytesV2(
   typeDecl = resolveV2Subs(typeDecl, substitutions);
 
   // Slice of u8 → bytes
-  if (isV2SliceU8(typeDecl)) {
-    if (typeof value === 'string' && value.startsWith('0x') && value.length > 2) {
-      return hexToBytes(value, fieldHint);
-    }
-    return value;
-  }
+  if (isV2SliceU8(typeDecl)) return tryHexToBytes(value, fieldHint);
 
   // Fixed array of u8 → bytes with length validation
   const fixed = isV2ArrayU8(typeDecl);
-  if (fixed.match && fixed.len !== undefined) {
-    if (typeof value === 'string' && value.startsWith('0x') && value.length > 2) {
-      const bytes = hexToBytes(value, fieldHint);
-      if (bytes.length !== fixed.len) {
-        throw new CliError(
-          `Hex string decodes to ${bytes.length} bytes but [u8; ${fixed.len}] expects ${fixed.len} bytes${fieldHint ? ` for "${fieldHint}"` : ''}`,
-          'INVALID_HEX_BYTES',
-        );
-      }
-      return bytes;
-    }
-    return value;
-  }
+  if (fixed.match && fixed.len !== undefined) return tryHexToBytes(value, fieldHint, fixed.len);
 
   // PrimitiveType (string literal): no byte fields to coerce
   if (typeof typeDecl === 'string') return value;
@@ -351,12 +346,7 @@ export function coerceHexToBytesV2(
       // Resolve once so isV2PrimitiveU8 sees the substituted inner type.
       const inner = resolveV2Subs(generics[0], substitutions);
       // Vec<u8> → bytes via hex coercion
-      if (isV2PrimitiveU8(inner)) {
-        if (typeof value === 'string' && value.startsWith('0x') && value.length > 2) {
-          return hexToBytes(value, fieldHint);
-        }
-        return value;
-      }
+      if (isV2PrimitiveU8(inner)) return tryHexToBytes(value, fieldHint);
       if (Array.isArray(value)) {
         return value.map((item) => coerceHexToBytesV2(item, inner, typeMap, fieldHint, substitutions));
       }

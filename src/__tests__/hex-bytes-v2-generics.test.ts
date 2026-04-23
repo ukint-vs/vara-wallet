@@ -1,7 +1,6 @@
 /**
- * Regression tests for Finding B from the /review pass:
- * generic user types must substitute type_params before coercing
- * byte fields. Without substitution, `Envelope<[u8]>.payload` stays
+ * Generic user types must substitute type_params before coercing byte
+ * fields. Without substitution, `Envelope<[u8]>.payload` would stay
  * as a hex string instead of being converted to bytes.
  */
 import * as path from 'path';

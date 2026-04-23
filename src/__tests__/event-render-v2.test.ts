@@ -1,5 +1,4 @@
 /**
- * Regression test for Finding C from the /review pass:
  * describeSailsProgram must render v2 events with all three payload
  * shapes — unit variant, single unnamed payload, named-field struct —
  * as useful strings, not "unknown".

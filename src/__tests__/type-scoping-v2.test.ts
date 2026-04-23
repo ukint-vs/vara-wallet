@@ -1,8 +1,7 @@
 /**
- * Regression test for Finding A from the /review pass:
- * two services declaring same-named user types must not collide in
- * arg coercion. Scoping via `serviceName` narrows the type map to
- * the caller's service + program-level types.
+ * Two services declaring same-named user types must not collide in arg
+ * coercion. Scoping via `serviceName` narrows the type map to the
+ * caller's service plus program-level types.
  */
 import * as path from 'path';
 import { parseIdlFileV2, getRegistryTypes } from '../services/sails';

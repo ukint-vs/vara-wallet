@@ -3,7 +3,7 @@ import { Sails, SailsProgram } from 'sails-js';
 import { SailsIdlParser as V1Parser } from 'sails-js-parser';
 import { SailsIdlParser as V2Parser } from 'sails-js/parser';
 import * as fs from 'fs';
-import { CliError, verbose, addressToHex } from '../utils';
+import { CliError, errorMessage, verbose, addressToHex } from '../utils';
 import { readConfig } from './config';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
@@ -170,51 +170,20 @@ export async function loadSailsAuto(
   const idlString = await resolveIdl(api, { ...options, programId }, null);
   const version = detectIdlVersion(idlString);
 
-  const primary = version === 'v2' ? buildV2FromIdl : buildV1FromIdl;
-  const secondary = version === 'v2' ? buildV1FromIdl : buildV2FromIdl;
-  const primaryLabel = version === 'v2' ? 'v2' : 'v1';
-  const secondaryLabel = version === 'v2' ? 'v1' : 'v2';
+  const bindApi = <T extends LoadedSails>(builder: (idl: string) => Promise<T>) =>
+    async (idl: string): Promise<T> => {
+      const loaded = await builder(idl);
+      loaded.setApi(api);
+      loaded.setProgramId(programId);
+      return loaded;
+    };
 
-  try {
-    return await primary(api, programId, idlString);
-  } catch (primaryErr) {
-    try {
-      return await secondary(api, programId, idlString);
-    } catch (secondaryErr) {
-      const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-      const secondaryMsg = secondaryErr instanceof Error ? secondaryErr.message : String(secondaryErr);
-      throw new CliError(
-        `IDL parse failed on both v1 and v2 parsers.\n  ${primaryLabel}: ${primaryMsg}\n  ${secondaryLabel}: ${secondaryMsg}`,
-        'IDL_PARSE_ERROR',
-      );
-    }
-  }
-}
-
-async function buildV1FromIdl(api: GearApi, programId: `0x${string}`, idlString: string): Promise<Sails> {
-  const parser = await getV1Parser();
-  const sails = new Sails(parser);
-  sails.parseIdl(idlString);
-  sails.setApi(api);
-  sails.setProgramId(programId);
-  return sails;
-}
-
-async function buildV2FromIdl(api: GearApi, programId: `0x${string}`, idlString: string): Promise<SailsProgram> {
-  const parser = await getV2Parser();
-  let program: SailsProgram;
-  try {
-    const doc = parser.parse(idlString);
-    program = new SailsProgram(doc);
-  } catch (err) {
-    throw new CliError(
-      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
-      'IDL_PARSE_ERROR',
-    );
-  }
-  program.setApi(api);
-  program.setProgramId(programId);
-  return program;
+  return tryPrimarySecondary(
+    idlString,
+    version,
+    bindApi(buildV1FromIdlString),
+    bindApi(buildV2FromIdlString),
+  );
 }
 
 /**
@@ -310,69 +279,51 @@ async function resolveIdl(
   );
 }
 
-/**
- * Parse a local IDL v1 file without requiring an API connection or programId.
- * Useful for encoding constructor payloads before deployment.
- */
-export async function parseIdlFileV1(idlPath: string): Promise<Sails> {
-  const parser = await getV1Parser();
-  const sails = new Sails(parser);
-  const idlString = await readIdlFile(idlPath);
-  try {
-    sails.parseIdl(idlString);
-  } catch (err) {
-    throw new CliError(
-      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
-      'IDL_PARSE_ERROR',
-    );
-  }
-  return sails;
-}
+// ────────────────────────────────────────────────────────────────────
+// Core builders — build a Sails/SailsProgram from an IDL string only.
+// Parse errors propagate untouched; public entry points wrap them in
+// `CliError(IDL_PARSE_ERROR)` where needed so the combined-error format
+// in `tryPrimarySecondary` doesn't double-wrap.
+// ────────────────────────────────────────────────────────────────────
 
-/** Parse a local IDL v2 file. */
-export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
-  const parser = await getV2Parser();
-  const idlString = await readIdlFile(idlPath);
-  try {
-    const doc = parser.parse(idlString);
-    return new SailsProgram(doc);
-  } catch (err) {
-    throw new CliError(
-      `Failed to parse IDL: ${err instanceof Error ? err.message : String(err)}`,
-      'IDL_PARSE_ERROR',
-    );
-  }
-}
-
-/**
- * Parse a local IDL file, auto-detecting version.
- * Used by offline flows (ctor encoding, encode/decode commands).
- *
- * Uses the same directive-first-with-fallback strategy as `loadSailsAuto`:
- * when the `!@sails:` directive is present we try v2 first but fall back
- * to v1 on parse failure (the directive match is permissive, so a v1 IDL
- * with the directive text in a doc comment still loads). When the
- * directive is absent we try v1 first, fall back to v2.
- */
 async function buildV1FromIdlString(idlString: string): Promise<Sails> {
   const parser = await getV1Parser();
   const sails = new Sails(parser);
   sails.parseIdl(idlString);
   return sails;
 }
+
 async function buildV2FromIdlString(idlString: string): Promise<SailsProgram> {
   const parser = await getV2Parser();
   return new SailsProgram(parser.parse(idlString));
 }
 
-export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
-  const idlString = await readIdlFile(idlPath);
-  const version = detectIdlVersion(idlString);
+async function wrapParse<T>(build: () => Promise<T>): Promise<T> {
+  try {
+    return await build();
+  } catch (err) {
+    throw new CliError(`Failed to parse IDL: ${errorMessage(err)}`, 'IDL_PARSE_ERROR');
+  }
+}
 
-  const primary = version === 'v2' ? buildV2FromIdlString : buildV1FromIdlString;
-  const secondary = version === 'v2' ? buildV1FromIdlString : buildV2FromIdlString;
-  const primaryLabel = version === 'v2' ? 'v2' : 'v1';
-  const secondaryLabel = version === 'v2' ? 'v1' : 'v2';
+/**
+ * Try primary parser first (selected by `version`), fall back to secondary
+ * on failure. When both parsers reject the input, the combined error
+ * preserves both messages so users can see which parser complained about
+ * what. Used by both `loadSailsAuto` (with API-bound builders) and
+ * `parseIdlFileAuto` (with bare builders).
+ */
+async function tryPrimarySecondary(
+  idlString: string,
+  version: IdlVersion,
+  buildV1: (idl: string) => Promise<Sails>,
+  buildV2: (idl: string) => Promise<SailsProgram>,
+): Promise<LoadedSails> {
+  const primaryIsV2 = version === 'v2';
+  const primary = primaryIsV2 ? buildV2 : buildV1;
+  const secondary = primaryIsV2 ? buildV1 : buildV2;
+  const primaryLabel = primaryIsV2 ? 'v2' : 'v1';
+  const secondaryLabel = primaryIsV2 ? 'v1' : 'v2';
 
   try {
     return await primary(idlString);
@@ -380,14 +331,45 @@ export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
     try {
       return await secondary(idlString);
     } catch (secondaryErr) {
-      const primaryMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-      const secondaryMsg = secondaryErr instanceof Error ? secondaryErr.message : String(secondaryErr);
       throw new CliError(
-        `IDL parse failed on both v1 and v2 parsers.\n  ${primaryLabel}: ${primaryMsg}\n  ${secondaryLabel}: ${secondaryMsg}`,
+        `IDL parse failed on both v1 and v2 parsers.\n  ${primaryLabel}: ${errorMessage(primaryErr)}\n  ${secondaryLabel}: ${errorMessage(secondaryErr)}`,
         'IDL_PARSE_ERROR',
       );
     }
   }
+}
+
+/**
+ * Parse a local IDL v1 file without requiring an API connection or programId.
+ * Useful for encoding constructor payloads before deployment.
+ */
+export async function parseIdlFileV1(idlPath: string): Promise<Sails> {
+  const idlString = await readIdlFile(idlPath);
+  return wrapParse(() => buildV1FromIdlString(idlString));
+}
+
+/** Parse a local IDL v2 file. */
+export async function parseIdlFileV2(idlPath: string): Promise<SailsProgram> {
+  const idlString = await readIdlFile(idlPath);
+  return wrapParse(() => buildV2FromIdlString(idlString));
+}
+
+/**
+ * Parse a local IDL file, auto-detecting version.
+ * Used by offline flows (ctor encoding, encode/decode commands).
+ *
+ * Uses the same directive-first-with-fallback strategy as `loadSailsAuto`:
+ * directive present → v2 first, fall back to v1; otherwise v1 first, fall
+ * back to v2.
+ */
+export async function parseIdlFileAuto(idlPath: string): Promise<LoadedSails> {
+  const idlString = await readIdlFile(idlPath);
+  return tryPrimarySecondary(
+    idlString,
+    detectIdlVersion(idlString),
+    buildV1FromIdlString,
+    buildV2FromIdlString,
+  );
 }
 
 /** @deprecated Alias for parseIdlFileV1. */

@@ -1,7 +1,7 @@
 /**
- * Verifies that the lazy parser cache in sails.ts does not permanently
- * wedge on a transient init failure. See recommendation #1 from the PR
- * review for context.
+ * The lazy parser cache must not wedge permanently on a transient init
+ * failure — a rejected promise must be evicted so the next caller can
+ * retry, while a successful init is still cached for subsequent callers.
  */
 
 // Count init calls across the whole test file; reset between tests.

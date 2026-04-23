@@ -1,13 +1,11 @@
 /**
- * Regression tests for Finding D from the /review pass:
- * when the `!@sails:` directive is present, the loader now tries v2
- * first but falls back to v1 on parse failure (instead of hard-failing
- * without trying v1). When the directive is absent, the order flips:
- * v1 first, fall back to v2.
+ * When the `!@sails:` directive is present, the loader tries v2 first
+ * but falls back to v1 on parse failure. When the directive is absent,
+ * the order flips: v1 first, fall back to v2.
  *
- * We assert this by inspecting the error-message ordering when both
- * parsers reject the input — the parser that was tried FIRST appears
- * first in the combined message.
+ * Asserted by inspecting the error-message ordering when both parsers
+ * reject the input — the parser tried first appears first in the
+ * combined message.
  */
 import * as fs from 'fs';
 import * as os from 'os';

@@ -1,3 +1,12 @@
+/**
+ * Extract a string message from anything that might be thrown. Preferred
+ * over inline `err instanceof Error ? err.message : String(err)` so error
+ * formatting stays consistent across the codebase.
+ */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class CliError extends Error {
   constructor(
     message: string,
