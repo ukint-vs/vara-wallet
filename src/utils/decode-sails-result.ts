@@ -76,7 +76,7 @@ function walkV1(sails: LoadedSails, td: V1TypeDef, value: unknown, serviceName: 
 
   if (td.isFixedSizeArray) {
     const inner = td.asFixedSizeArray.def;
-    if (isByteType(primitiveName(inner, false))) return value;
+    if (isByteType(primitiveName(inner))) return value;
     if (!Array.isArray(value)) return fallback(sails, td, value, 'expected fixed-size array value to be an array');
     return value.map((v) => walkV1(sails, inner, v, serviceName));
   }
@@ -286,7 +286,10 @@ function walkV2EnumPayload(
 }
 
 function normalizePrimV2(s: string): string {
-  const lower = s.toLowerCase();
+  // Lowercase then strip underscores so snake_case ("actor_id") and
+  // PascalCase ("ActorId") collapse to the same canonical form. Forward-
+  // compat for any future sails-js dialect shift.
+  const lower = s.toLowerCase().replace(/_/g, '');
   if (lower === 'string' || lower === 'str') return 'str';
   if (lower === 'actorid') return 'actorid';
   if (lower === 'codeid') return 'codeid';
@@ -428,8 +431,9 @@ function lowerFirst(s: string): string {
   return s.length === 0 ? s : s[0].toLowerCase() + s.slice(1);
 }
 
-function primitiveName(typeDef: unknown, _v2: boolean): string {
-  // Reused by v1 array check. Safe on v2 too because v2 bare strings pass straight through.
+function primitiveName(typeDef: unknown): string {
+  // Shared by the fixed-size-array byte-check. Accepts either the v2 bare-string
+  // form (e.g. "u8", "ActorId") or the v1 accessor-TypeDef form.
   if (typeof typeDef === 'string') return normalizePrimV2(typeDef);
   const td = typeDef as V1TypeDef;
   if (td && td.isPrimitive) return primitiveV1Name(td.asPrimitive);

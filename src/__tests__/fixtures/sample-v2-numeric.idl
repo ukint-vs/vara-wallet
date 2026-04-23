@@ -1,5 +1,13 @@
 !@sails: 1.0.0-beta.1
 
+// IMPORTANT: the @0x... interface_id after each service name is
+// content-derived by the sails-js v2 parser from the full service
+// signature (name + methods + events + types). If you change any
+// signature below, the parser will reject the file with a
+// "Validation error: service `X` computed interface_id 0x... is
+// not equal to 0x... in IDL" message — copy the computed hex from
+// that error into the corresponding `@0x...` suffix.
+
 /// Numeric-heavy service exercising the decode-sails-result walker for
 /// u256 / u128 / u64 inside Option / Vec / struct / tuple / enum / user-
 /// defined types. Mirrors the shapes in issue #32.

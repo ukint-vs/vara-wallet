@@ -280,4 +280,20 @@ describe('decodeSailsResult (v2 — Nums fixture)', () => {
       expect(decodeSailsResult(sails, td, 42, 'Nums')).toBe(42);
     });
   });
+
+  describe('primitive name forward-compat', () => {
+    const hex32 = '0xd435' + '0'.repeat(60);
+
+    it('snake_case actor_id normalizes to ActorId passthrough', () => {
+      expect(decodeSailsResult(sails, 'actor_id', hex32, 'Nums')).toBe(hex32);
+    });
+
+    it('PascalCase ActorId is unchanged', () => {
+      expect(decodeSailsResult(sails, 'ActorId', hex32, 'Nums')).toBe(hex32);
+    });
+
+    it('snake_case message_id also passes hex through', () => {
+      expect(decodeSailsResult(sails, 'message_id', hex32, 'Nums')).toBe(hex32);
+    });
+  });
 });
