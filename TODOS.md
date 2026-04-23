@@ -24,6 +24,30 @@ without external tooling.
 
 **Depends on:** ASCII payload support (completed). Constructor encoding (completed v0.8.0).
 
+## vft balance / vft allowance decoder wiring
+**Priority:** P2 | **Effort:** S (human ~1 day / CC ~15 min)
+
+The `vft balance` and `vft allowance` subcommands currently call
+`BigInt(result)`/`String(result)` directly on the raw sails-js reply
+(`src/commands/vft.ts:288-289` and `:326-327`). This works for top-level
+`u256` return types (the common `Vft.BalanceOf` case) but crashes with
+`BigInt(null)` if the call resolves against `VftExtension.BalanceOf`
+(declared as `opt u256`) and the account has no balance row.
+
+`findVftService` iterates services in IDL-declaration order, so which
+service wins depends on how the IDL was authored. Brittle.
+
+**Fix:** route these two sites through `decodeSailsResult` (already
+available in `src/utils/decode-sails-result.ts`) and then handle the
+`null` case explicitly before `BigInt`/`String` coercion. Roughly four
+lines per site.
+
+**Context:** Surfaced during pre-landing review of PR #40 (issue #32
+decoder fix). Not in scope for #32 because it needs its own None-path
+design — the decoder alone is not enough.
+
+**Depends on:** `decodeSailsResult` (landed in #40).
+
 ## Voucher auto-discovery
 **Priority:** P3 | **Effort:** S (human ~1 day / CC ~15 min)
 

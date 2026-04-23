@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-04-23
+
+### Fixed
+- `call --json` now recursively decodes nested `U256` / `u128` / `u64` into decimal strings when they appear inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user-defined types. Previously only top-level primitives decoded correctly; nested numeric leaves leaked as raw `0x...` hex. Same fix applied to `vft` and `dex` transaction responses (#32).
+- `VftExtension/BalanceOf` now returns `{"result": "186726170"}` (or `null`) instead of a 32-byte hex blob.
+- `VftExtension/Allowances` now returns fully-decoded nested arrays — every inner `U256` is a decimal string, tuples stay as arrays, `ActorId` entries stay hex.
+
+### Changed
+- **Breaking (for anyone parsing raw hex from `--json` output):** the shape of `result` now matches the declared IDL return type at every level. Callers that expected `"0x..."` for nested `U256` must read the decimal string instead. Top-level primitives (`Vft/TotalSupply`, `VftMetadata/Symbol`) are unchanged.
+
 ## [0.11.0] - 2026-04-22
 
 ### Added
