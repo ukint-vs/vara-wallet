@@ -1,0 +1,32 @@
+
+!@sails: 1.0.0-beta.1
+
+// Two services emit an event named `Posted`. Used to drive the
+// ambiguous-bare-name test path: resolveEventName('Posted') must
+// throw AMBIGUOUS_EVENT and list both alternatives.
+
+service Chat@0x58772673c674b97a {
+    events {
+        Posted(u32),
+    }
+    functions {
+        Send(value: u32);
+    }
+}
+
+service Forum@0x0884062e18ed7f68 {
+    events {
+        Posted(u32),
+    }
+    functions {
+        Reply(value: u32);
+    }
+}
+
+program Demo {
+    constructors { Default(); }
+    services {
+        Chat@0x58772673c674b97a,
+        Forum@0x0884062e18ed7f68,
+    }
+}

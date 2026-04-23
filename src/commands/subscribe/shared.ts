@@ -2,6 +2,8 @@ import { GearApi, type UserMessageSent } from '@gear-js/api';
 import { outputNdjson, verbose, CliError, tryHexToText } from '../../utils';
 import { insertEvent, type EventInsert } from '../../services/event-store';
 import { disconnectApi } from '../../services/api';
+import type { LoadedSails } from '../../services/sails';
+import { decodeSailsEvent, resolveEventName } from '../../services/sails-events';
 
 /**
  * Install a global timeout that fires regardless of subscription phase.
@@ -254,6 +256,77 @@ export function formatUserMessageSent(event: UserMessageSent): Record<string, un
         }
       : null,
   };
+}
+
+/**
+ * Decode a `UserMessageSent` against an optional Sails IDL and return the
+ * existing raw shape, additively augmented with `sails: {service, event,
+ * data}` when a decode succeeds. NEVER renames or removes existing fields
+ * — backward-compat on the wire is the contract.
+ *
+ * `sails-js`'s own `events[E].is()` only checks destination + payload
+ * prefix. So we MUST pre-filter by `message.source === programIdHex`
+ * here; otherwise an unrelated program that happens to share the
+ * service hash + event id would get its events spuriously decoded
+ * against this IDL (Codex finding #2).
+ */
+export function formatUserMessageSentMaybeDecoded(
+  event: UserMessageSent,
+  sails: LoadedSails | null,
+  programIdHex: string,
+): Record<string, unknown> {
+  const raw = formatUserMessageSent(event);
+  if (!sails) return raw;
+  const sourceHex = event.data.message.source.toHex();
+  if (sourceHex !== programIdHex) return raw;
+  const decoded = decodeSailsEvent(sails, event);
+  if (!decoded) return raw;
+  return { ...raw, sails: { service: decoded.service, event: decoded.event, data: decoded.data } };
+}
+
+/**
+ * Resolved filter for `--type` / `--event` flags on watch / subscribe.
+ *
+ * `pallet` — match a `gearEvents` pallet event by name (back-compat).
+ * `sails` — match a Sails IDL event by `(service, event)`.
+ *
+ * Resolution order: Gear vocab first, then Sails IDL. This preserves
+ * back-compat for users who already type `--event UserMessageSent`
+ * (it always resolves to the pallet event, never to a same-named
+ * Sails event). Users who want a Sails event can pass `Service/Event`
+ * (always unambiguous) or a bare name that exists only in the IDL.
+ *
+ * `forcePallet=true` skips the IDL lookup entirely. Used by the
+ * `--pallet-event` escape-hatch flag for the rare case where a user
+ * has loaded an IDL but wants the pallet path anyway.
+ */
+export type ResolvedSubscribeFilter =
+  | { kind: 'sails'; service: string; event: string }
+  | { kind: 'pallet'; event: GearEventName };
+
+export function resolveSubscribeFilter(
+  name: string,
+  sails: LoadedSails | null,
+  forcePallet: boolean,
+): ResolvedSubscribeFilter {
+  // Gear-first precedence — bare names that match the legacy pallet vocab
+  // always resolve to the pallet path. Codex finding #5: anything else
+  // would silently break existing scripts when an IDL happens to declare
+  // a same-named event.
+  if (!name.includes('/') && (VALID_GEAR_EVENTS as readonly string[]).includes(name)) {
+    return { kind: 'pallet', event: name as GearEventName };
+  }
+  if (forcePallet) {
+    return { kind: 'pallet', event: validateEventName(name) };
+  }
+  if (sails) {
+    // resolveEventName throws AMBIGUOUS_EVENT on multi-service bare-name
+    // matches — surface that to the user untouched.
+    const match = resolveEventName(sails, name);
+    if (match) return { kind: 'sails', service: match.service, event: match.event };
+  }
+  // Fall back to pallet validation (back-compat error path).
+  return { kind: 'pallet', event: validateEventName(name) };
 }
 
 /**

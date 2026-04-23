@@ -4,4 +4,4 @@ export { varaToMinimal, minimalToVara, toMinimalUnits, resolveAmount } from './u
 export { addressToHex } from './address';
 export { textToHex, tryHexToText, resolvePayload } from './payload';
 export { coerceArgs, coerceArgsV2, coerceArgsAuto, coerceHexToBytes, coerceHexToBytesV2 } from './hex-bytes';
-export { decodeSailsResult } from './decode-sails-result';
+export { decodeSailsResult, decodeEventData } from './decode-sails-result';

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSailsAuto, describeSailsProgram, type LoadedSails } from '../services/sails';
+import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult } from '../utils';
@@ -194,6 +195,20 @@ async function executeFunction(
 
   const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 
+  // Phase-correlated block-event scan (#37). Walks system.events() at the
+  // inclusion block, restricting to records emitted by OUR extrinsic
+  // (via phase index match) and our programId, then runs each through
+  // decodeSailsEvent. Always-on, additive — `events` is a new key, never
+  // replaces or renames anything in the existing reply shape.
+  const programIdHex = addressToHex(programId);
+  const events = await collectDecodedEvents(
+    api,
+    sails,
+    result.blockHash as `0x${string}`,
+    result.txHash as `0x${string}`,
+    programIdHex as `0x${string}`,
+  );
+
   output({
     txHash: result.txHash,
     blockHash: result.blockHash,
@@ -201,5 +216,6 @@ async function executeFunction(
     messageId: result.msgId,
     voucherId: options.voucher ?? null,
     result: decoded,
+    events,
   });
 }

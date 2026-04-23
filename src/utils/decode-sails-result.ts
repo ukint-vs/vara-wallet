@@ -51,6 +51,15 @@ export function decodeSailsResult(
   }
 }
 
+/**
+ * Alias of `decodeSailsResult` used by `decodeSailsEvent` for event
+ * payloads. They share the same walker so #32's recursive Option/U256 fix
+ * automatically reaches event consumers — a single normalization pipeline
+ * for "decoded JSON shape", whether from a query reply, function reply,
+ * or program-emitted event.
+ */
+export const decodeEventData = decodeSailsResult;
+
 function walk(sails: LoadedSails, typeDef: unknown, value: unknown, serviceName: string): unknown {
   if (typeDef == null) return value;
   if (isSailsV2(sails)) return walkV2(sails, typeDef as V2Node, value, serviceName);
