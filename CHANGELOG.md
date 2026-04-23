@@ -11,6 +11,12 @@ All notable changes to this project will be documented in this file.
 - Decoded Sails events are appended to the `call` JSON response under a new `events: [...]` key (closes #37). The event scan is phase-correlated to the submitting extrinsic, so cross-transaction events that share the block are excluded. Additive — existing response fields (`txHash`, `blockHash`, `messageId`, `result`, ...) are unchanged.
 - New `src/services/sails-events.ts` module exposing `decodeSailsEvent`, `listEventNames`, `resolveEventName`, and `collectDecodedEvents`. Recursively walks v2 `service.extends`, so events declared in an inherited service are discoverable in filter resolution and decoding.
 - Decoded event payloads flow through the shared `decodeEventData` walker (alias of `decodeSailsResult` from #32), so nested `Option<U256>`, `Vec<U256>`, and user-defined types normalize to the same JSON shape as `call` replies.
+- `--args-file <path>` on `call`, `encode`, `program upload`, and `program deploy` reads the JSON args from a file instead of the `--args` string. Use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures when nested JSON contains hex actor IDs or 64-byte `vec u8` signatures (the failure mode that surfaced as `{"error":"[object Object]","code":"UNKNOWN_ERROR"}` during 2026-04-23 live testing). Closes [#20](https://github.com/gear-foundation/vara-wallet/issues/20).
+- `--dry-run` on `call`, `program upload`, and `program deploy`: encode the SCALE payload and exit without signing or submitting. Output includes the encoded hex, resolved constructor name (for upload/deploy), and `willSubmit: false`. Works without a wallet configured — agents can preview payloads on read-only machines.
+
+### Changed
+- `--args` and `--args-file` are mutually exclusive (`code: INVALID_ARGS_SOURCE`). `--estimate` and `--dry-run` are mutually exclusive on `call` (`code: CONFLICTING_OPTIONS`). Malformed-JSON errors from `--args-file` never echo the file path or content (file may contain test seeds); error reports parse position only.
+- Stdin (`--args-file -`) rejects fast with `STDIN_IS_TTY` when no pipe is attached, instead of hanging waiting for EOF — common AI-agent footgun.
 
 ## [0.13.0] - 2026-04-24
 

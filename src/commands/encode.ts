@@ -3,29 +3,54 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { loadSailsAuto, parseIdlFileAuto, isSailsV2, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
-import { output, verbose, CliError, tryHexToText, coerceArgsAuto } from '../utils';
+import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
     .command('encode')
     .description('Encode a payload using metadata or Sails IDL')
     .argument('<type>', 'type name or index to encode')
-    .argument('<value>', 'JSON value to encode')
+    .argument('[value]', 'JSON value to encode (omit when using --args-file)')
+    .option('--args-file <path>', 'read JSON value from file (use - for stdin)')
     .option('--metadata <path>', 'path to .meta.txt file')
     .option('--idl <path>', 'path to Sails IDL file')
     .option('--program <id>', 'program ID (for IDL-based encoding)')
     .option('--method <service/method>', 'Service/Method for Sails encoding')
-    .action(async (type: string, value: string, options: {
+    .action(async (type: string, value: string | undefined, options: {
+      argsFile?: string;
       metadata?: string;
       idl?: string;
       program?: string;
       method?: string;
     }) => {
+      // Mutual exclusion: positional value + --args-file. The CLI surface
+      // is "pick one source for the JSON value to encode."
+      if (value !== undefined && options.argsFile !== undefined) {
+        throw new CliError(
+          'Cannot use the positional value and --args-file together; pick one. ' +
+          '(positional for inline JSON, --args-file for file path or - for stdin)',
+          'INVALID_ARGS_SOURCE',
+        );
+      }
+
       let parsedValue: unknown;
-      try {
-        parsedValue = JSON.parse(value);
-      } catch {
-        parsedValue = value;
+      if (options.argsFile !== undefined) {
+        // Strict JSON via the shared helper. No string fallback — callers
+        // using --args-file are passing a JSON document, not a bare scalar.
+        parsedValue = loadArgsJson({ argsFile: options.argsFile });
+      } else if (value !== undefined) {
+        // Backward-compat: positional value tries JSON, falls back to raw
+        // string so `vara-wallet encode text "hello"` works without quoting.
+        try {
+          parsedValue = JSON.parse(value);
+        } catch {
+          parsedValue = value;
+        }
+      } else {
+        throw new CliError(
+          'Provide a value (positional) or --args-file <path>',
+          'MISSING_ENCODING_INPUT',
+        );
       }
 
       if (options.idl && options.method) {
