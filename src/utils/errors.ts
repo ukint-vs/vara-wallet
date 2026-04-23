@@ -7,10 +7,13 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export type ErrorMeta = Record<string, unknown>;
+
 export class CliError extends Error {
   constructor(
     message: string,
     public readonly code: string,
+    public readonly meta?: ErrorMeta,
   ) {
     super(message);
     this.name = 'CliError';
@@ -22,9 +25,17 @@ export function outputError(error: unknown): void {
   process.stderr.write(JSON.stringify(formatted) + '\n');
 }
 
-export function formatError(error: unknown): { error: string; code: string } {
+export function formatError(error: unknown): { error: string; code: string } & ErrorMeta {
   if (error instanceof CliError) {
-    return { error: error.message, code: error.code };
+    // Sanitize the message — CliError messages can include surfaced strings
+    // (e.g. raw program panic text) that may carry secrets in pathological
+    // cases. Spreading meta first then base ensures `error`/`code` always win
+    // if a caller accidentally puts those keys in `meta`.
+    const base = {
+      error: sanitizeErrorMessage(error.message),
+      code: error.code,
+    };
+    return error.meta ? { ...error.meta, ...base } : base;
   }
 
   if (error instanceof Error) {
@@ -69,6 +80,79 @@ function classifyError(error: Error): string {
   }
 
   return 'INTERNAL_ERROR';
+}
+
+/**
+ * Classify an error thrown from the program execution path (Sails query or
+ * function call) into a `PROGRAM_ERROR` CliError with a structured `reason`
+ * subcode. Lets agent consumers distinguish program panics from inactive
+ * programs from not-found from unreachable code, without regex-matching
+ * English panic strings on the consumer side.
+ *
+ * Always returns code `PROGRAM_ERROR` for backward compatibility. The
+ * subcode lives in `meta.reason` (and `meta.programMessage` for panics).
+ */
+export function classifyProgramError(err: unknown): CliError {
+  const raw = err instanceof Error
+    ? err.message
+    : typeof err === 'object' && err !== null
+      ? JSON.stringify(err)
+      : String(err);
+
+  // panicked with '<msg>' — capture inner panic string.
+  // Use a non-greedy match anchored against the standard Rust panic suffix
+  // (` at <file>:<line>`) or end-of-string, so panic strings containing
+  // nested quotes (e.g. `panicked with 'user "alice" not found' at lib.rs:1`)
+  // are captured in full rather than truncated at the first inner quote.
+  const panicMatch = raw.match(/panicked with ['"]([\s\S]*?)['"](?:\s+at\s|$)/);
+  if (panicMatch) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'panic', programMessage: panicMatch[1] },
+    );
+  }
+
+  if (raw.includes('entered unreachable code')) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'unreachable' },
+    );
+  }
+
+  if (raw.includes('InactiveProgram')) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'inactive' },
+    );
+  }
+
+  // Require the "does not exist" phrase to be qualified by "Program" so we
+  // do not misclassify generic "Account does not exist" / "File does not
+  // exist" errors as a program-level not_found.
+  if (raw.includes('ProgramNotFound') || /[Pp]rogram\b[^\n]*\bdoes not exist\b/.test(raw)) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'not_found' },
+    );
+  }
+
+  // No program-specific signature matched. Before defaulting to PROGRAM_ERROR,
+  // check whether this is actually a transport / system error bubbling up from
+  // the RPC layer (timeout, websocket disconnect, etc). Misclassifying those
+  // as PROGRAM_ERROR tells agent consumers "the program failed, do not retry"
+  // when the right signal is "the network blipped, retry it".
+  if (err instanceof Error) {
+    const code = classifyError(err);
+    if (code !== 'INTERNAL_ERROR') {
+      return new CliError(err.message, code);
+    }
+  }
+
+  return new CliError(`Program execution failed: ${raw}`, 'PROGRAM_ERROR');
 }
 
 export function installGlobalErrorHandler(): void {
