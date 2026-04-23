@@ -7,10 +7,13 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export type ErrorMeta = Record<string, unknown>;
+
 export class CliError extends Error {
   constructor(
     message: string,
     public readonly code: string,
+    public readonly meta?: ErrorMeta,
   ) {
     super(message);
     this.name = 'CliError';
@@ -22,9 +25,16 @@ export function outputError(error: unknown): void {
   process.stderr.write(JSON.stringify(formatted) + '\n');
 }
 
-export function formatError(error: unknown): { error: string; code: string } {
+export function formatError(error: unknown): { error: string; code: string } & ErrorMeta {
   if (error instanceof CliError) {
-    return { error: error.message, code: error.code };
+    const base: { error: string; code: string } & ErrorMeta = {
+      error: error.message,
+      code: error.code,
+    };
+    if (error.meta) {
+      return { ...base, ...error.meta };
+    }
+    return base;
   }
 
   if (error instanceof Error) {
@@ -69,6 +79,60 @@ function classifyError(error: Error): string {
   }
 
   return 'INTERNAL_ERROR';
+}
+
+/**
+ * Classify an error thrown from the program execution path (Sails query or
+ * function call) into a `PROGRAM_ERROR` CliError with a structured `reason`
+ * subcode. Lets agent consumers distinguish program panics from inactive
+ * programs from not-found from unreachable code, without regex-matching
+ * English panic strings on the consumer side.
+ *
+ * Always returns code `PROGRAM_ERROR` for backward compatibility. The
+ * subcode lives in `meta.reason` (and `meta.programMessage` for panics).
+ */
+export function classifyProgramError(err: unknown): CliError {
+  const raw = err instanceof Error
+    ? err.message
+    : typeof err === 'object' && err !== null
+      ? JSON.stringify(err)
+      : String(err);
+
+  // panicked with '<msg>' — capture inner panic string
+  const panicMatch = raw.match(/panicked with ['"]([^'"]*)['"]/);
+  if (panicMatch) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'panic', programMessage: panicMatch[1] },
+    );
+  }
+
+  if (raw.includes('entered unreachable code')) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'unreachable' },
+    );
+  }
+
+  if (raw.includes('InactiveProgram')) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'inactive' },
+    );
+  }
+
+  if (raw.includes('ProgramNotFound') || raw.includes('does not exist')) {
+    return new CliError(
+      `Program execution failed: ${raw}`,
+      'PROGRAM_ERROR',
+      { reason: 'not_found' },
+    );
+  }
+
+  return new CliError(`Program execution failed: ${raw}`, 'PROGRAM_ERROR');
 }
 
 export function installGlobalErrorHandler(): void {
