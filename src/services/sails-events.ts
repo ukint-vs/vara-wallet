@@ -140,7 +140,10 @@ export async function collectDecodedEvents(
   try {
     const block = await api.rpc.chain.getBlock(blockHash);
     const exts = block.block.extrinsics;
-    extrinsicIdx = exts.findIndex((x) => x.hash.toHex() === txHash);
+    // `txHash` is a `HexString` per sails-js `IMethodReturnType`; using
+    // `.eq()` rather than `===` is defensive and works whether the caller
+    // passes a hex string or a polkadot `Hash` codec.
+    extrinsicIdx = exts.findIndex((x) => x.hash.eq(txHash));
   } catch (err) {
     verbose(`collectDecodedEvents: getBlock failed — ${errorMessage(err)}`);
     return [];

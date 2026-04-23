@@ -200,13 +200,16 @@ async function executeFunction(
   // (via phase index match) and our programId, then runs each through
   // decodeSailsEvent. Always-on, additive — `events` is a new key, never
   // replaces or renames anything in the existing reply shape.
+  // sails-js `IMethodReturnType` declares blockHash/txHash as `HexString`
+  // (= `0x${string}`) and the runtime (`transaction-builder.js`) returns them
+  // already converted via `.toHex()`. No cast needed; pass straight through.
   const programIdHex = addressToHex(programId);
   const events = await collectDecodedEvents(
     api,
     sails,
-    result.blockHash as `0x${string}`,
-    result.txHash as `0x${string}`,
-    programIdHex as `0x${string}`,
+    result.blockHash,
+    result.txHash,
+    programIdHex,
   );
 
   output({

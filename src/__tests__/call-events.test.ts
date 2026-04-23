@@ -76,7 +76,9 @@ function buildApi(records: StubRecord[], extrinsicHashes: string[]): unknown {
       chain: {
         getBlock: async () => ({
           block: {
-            extrinsics: extrinsicHashes.map((h) => ({ hash: { toHex: () => h } })),
+            extrinsics: extrinsicHashes.map((h) => ({
+              hash: { toHex: () => h, eq: (other: unknown) => h === String(other) },
+            })),
           },
         }),
       },
