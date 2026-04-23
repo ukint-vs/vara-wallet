@@ -25,6 +25,14 @@ jest.mock('../services/account', () => ({
   resolveAddress: jest.fn().mockResolvedValue('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'),
 }));
 
+// Mock readConfig so tests don't read the developer's real ~/.vara-wallet/config.json.
+// Without this, a mainnet wsEndpoint in the dev's local config trips the mainnet guard
+// at src/commands/faucet.ts:49 and every test throws WRONG_NETWORK.
+jest.mock('../services/config', () => ({
+  readConfig: jest.fn().mockReturnValue({}),
+  writeConfig: jest.fn(),
+}));
+
 import { Command } from 'commander';
 import { registerFaucetCommand } from '../commands/faucet';
 import { CliError } from '../utils';
