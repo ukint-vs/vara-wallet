@@ -17,6 +17,7 @@ import { registerWaitCommand } from './commands/wait';
 import { registerWatchCommand } from './commands/watch';
 import { registerDiscoverCommand } from './commands/discover';
 import { registerCallCommand } from './commands/call';
+import { registerIdlCommand } from './commands/idl';
 import { registerVftCommand } from './commands/vft';
 import { registerVoucherCommand } from './commands/voucher';
 import { registerEncodeCommand } from './commands/encode';
@@ -95,6 +96,7 @@ registerWatchCommand(program);
 // Register commands — Phase 3
 registerDiscoverCommand(program);
 registerCallCommand(program);
+registerIdlCommand(program);
 registerVftCommand(program);
 registerVoucherCommand(program);
 registerEncodeCommand(program);
