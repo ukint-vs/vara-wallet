@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0] - 2026-04-24
+
+### Added
+- IDL-aware Sails event decoding in `watch` and `subscribe messages` (closes #36). Loading an IDL (explicitly via `--idl <path>` or auto-resolved from chain WASM) augments each emitted `UserMessageSent` with a `sails: {service, event, data}` block. Existing raw fields (`payload`, `source`, `destination`, etc.) are untouched, so consumers that already parse the raw NDJSON keep working.
+- `--event <Service/Event>` and bare-name Sails event filters on both `watch` and `subscribe messages`. Gear pallet vocabulary (`UserMessageSent`, `MessageQueued`, etc.) still resolves to the legacy pallet path first so existing scripts keep working. Ambiguous bare Sails names hard-fail with `AMBIGUOUS_EVENT` and list the alternatives.
+- `--pallet-event` flag on `watch` / `subscribe messages` to force Gear pallet event resolution even when an IDL is loaded, and `--no-decode` to disable the opportunistic IDL auto-load entirely.
+- Decoded Sails events are appended to the `call` JSON response under a new `events: [...]` key (closes #37). The event scan is phase-correlated to the submitting extrinsic, so cross-transaction events that share the block are excluded. Additive — existing response fields (`txHash`, `blockHash`, `messageId`, `result`, ...) are unchanged.
+- New `src/services/sails-events.ts` module exposing `decodeSailsEvent`, `listEventNames`, `resolveEventName`, and `collectDecodedEvents`. Recursively walks v2 `service.extends`, so events declared in an inherited service are discoverable in filter resolution and decoding.
+- Decoded event payloads flow through the shared `decodeEventData` walker (alias of `decodeSailsResult` from #32), so nested `Option<U256>`, `Vec<U256>`, and user-defined types normalize to the same JSON shape as `call` replies.
+
 ## [0.13.0] - 2026-04-24
 
 ### Added
