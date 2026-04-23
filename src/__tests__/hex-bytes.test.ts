@@ -257,6 +257,14 @@ describe('actor_id (ActorId)', () => {
     expect(() => coerceHexToBytes('not-an-address', actorIdDef, EMPTY_MAP)).toThrow(/Invalid ActorId/);
   });
 
+  it('throws INVALID_ADDRESS on wrong-length hex (20-byte Ethereum-style)', () => {
+    // decodeAddress accepts arbitrary-length hex — we must reject anything
+    // that isn't exactly 32 bytes at this layer, not let the SCALE encoder
+    // surface a cryptic length error downstream.
+    expect(() => coerceHexToBytes('0x1234567890123456789012345678901234567890', actorIdDef, EMPTY_MAP))
+      .toThrow(/Invalid ActorId/);
+  });
+
   it('passes through non-string values unchanged (e.g. pre-decoded u8 array)', () => {
     const preDecoded = Array.from({ length: 32 }, (_, i) => i);
     expect(coerceHexToBytes(preDecoded, actorIdDef, EMPTY_MAP)).toBe(preDecoded);

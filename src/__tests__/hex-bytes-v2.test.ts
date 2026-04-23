@@ -194,6 +194,11 @@ describe('ActorId primitive', () => {
     expect(() => coerceHexToBytesV2('not-an-address', 'ActorId', EMPTY_MAP)).toThrow(/Invalid ActorId/);
   });
 
+  it('throws on wrong-length hex (20-byte Ethereum-style)', () => {
+    expect(() => coerceHexToBytesV2('0x1234567890123456789012345678901234567890', 'ActorId', EMPTY_MAP))
+      .toThrow(/Invalid ActorId/);
+  });
+
   it('passes through non-string unchanged', () => {
     const preDecoded = Array.from({ length: 32 }, (_, i) => i);
     expect(coerceHexToBytesV2(preDecoded, 'ActorId', EMPTY_MAP)).toBe(preDecoded);

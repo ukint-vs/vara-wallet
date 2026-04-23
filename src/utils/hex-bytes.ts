@@ -75,12 +75,22 @@ function hexToBytes(value: string, fieldHint?: string): number[] {
  * with pre-ActorId-SS58 behavior), or SS58 via `addressToHex`. Non-string
  * values pass through so downstream encoders can accept pre-decoded shapes
  * (e.g. `number[]` of length 32).
+ *
+ * `addressToHex` wraps `decodeAddress`, which also accepts arbitrary-length
+ * hex (e.g. 20-byte Ethereum-style strings). Those decode to the wrong
+ * length for an ActorId, so we re-validate the output against the 32-byte
+ * regex and throw at this layer instead of letting the downstream SCALE
+ * encoder produce an opaque length error.
  */
 function tryActorIdToHex(value: unknown, fieldHint?: string): unknown {
   if (typeof value !== 'string') return value;
   if (ACTOR_ID_HEX_RE.test(value)) return value;
   try {
-    return addressToHex(value);
+    const hex = addressToHex(value);
+    if (!ACTOR_ID_HEX_RE.test(hex)) {
+      throw new Error('decoded to non-32-byte length');
+    }
+    return hex;
   } catch {
     throw new CliError(
       `Invalid ActorId${fieldHint ? ` for "${fieldHint}"` : ''}: "${value}". Expected hex (0x… 64 chars) or SS58 address.`,
