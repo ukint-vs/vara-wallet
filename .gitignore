@@ -5,3 +5,9 @@ dist/
 .env
 .vara-wallet/
 NOTES.md
+
+# gemini-cli settings
+.gemini/
+
+# GitHub App credentials
+gha-creds-*.json
