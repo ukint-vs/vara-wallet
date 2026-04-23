@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-04-23
+
+### Added
+- `call`, `encode`, and `program deploy` now accept SS58 addresses (`5Grw...`) in `--args` for any `ActorId`-typed positional or struct-nested argument. Previously only 32-byte hex was accepted, forcing users to manually decode addresses copied from Subscan before passing them to Sails methods like `Vft/BalanceOf`. Canonical hex input remains byte-identical on the wire. Closes [#31](https://github.com/gear-foundation/vara-wallet/issues/31).
+
+### Fixed
+- Faucet test suite no longer reads the developer's real `~/.vara-wallet/config.json`. The mainnet guard at `faucet.ts:49` was triggering on any dev machine with a mainnet `wsEndpoint` configured, failing 6 tests locally even though CI stayed green.
+
 ## [0.11.0] - 2026-04-22
 
 ### Added
