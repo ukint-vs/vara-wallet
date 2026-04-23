@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `--args-file <path>` on `call`, `encode`, `program upload`, and `program deploy` reads the JSON args from a file instead of the `--args` string. Use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures when nested JSON contains hex actor IDs or 64-byte `vec u8` signatures (the failure mode that surfaced as `{"error":"[object Object]","code":"UNKNOWN_ERROR"}` during 2026-04-23 live testing). Closes [#20](https://github.com/gear-foundation/vara-wallet/issues/20).
+- `--dry-run` on `call`, `program upload`, and `program deploy`: encode the SCALE payload and exit without signing or submitting. Output includes the encoded hex, resolved constructor name (for upload/deploy), and `willSubmit: false`. Works without a wallet configured — agents can preview payloads on read-only machines.
+
+### Changed
+- `--args` and `--args-file` are mutually exclusive (`code: INVALID_ARGS_SOURCE`). `--estimate` and `--dry-run` are mutually exclusive on `call` (`code: CONFLICTING_OPTIONS`). Malformed-JSON errors from `--args-file` never echo the file path or content (file may contain test seeds); error reports parse position only.
+- Stdin (`--args-file -`) rejects fast with `STDIN_IS_TTY` when no pipe is attached, instead of hanging waiting for EOF — common AI-agent footgun.
+
 ## [0.13.0] - 2026-04-24
 
 ### Added
