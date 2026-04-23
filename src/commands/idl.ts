@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
-import * as path from 'path';
 import { getApi } from '../services/api';
-import { writeCachedIdl, getIdlCacheDir } from '../services/idl-cache';
+import { writeCachedIdl, getIdlEntryPath } from '../services/idl-cache';
 import { detectIdlVersion } from '../services/sails';
 import { output, verbose, CliError, addressToHex } from '../utils';
 
@@ -84,14 +83,11 @@ export function registerIdlCommand(program: Command): void {
         importedAt: new Date().toISOString(),
       });
 
-      const normalizedCodeId = codeId.replace(/^0x/i, '').toLowerCase();
-      const cachePath = path.join(getIdlCacheDir(), `${normalizedCodeId}.cache.json`);
-
       output({
         codeId,
         version,
         source: 'import',
-        path: cachePath,
+        path: getIdlEntryPath(codeId),
       });
     });
 }

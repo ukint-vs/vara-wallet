@@ -112,10 +112,12 @@ describe('idl-cache', () => {
     expect(() => evictCachedIdl(never)).not.toThrow();
   });
 
-  it('atomic write leaves no .tmp file on success', () => {
+  it('atomic write leaves no .tmp sibling on success', () => {
     const codeIdF = 'ff'.repeat(32);
     writeCachedIdl(codeIdF, 'x', meta);
-    const tmp = path.join(getIdlCacheDir(), `${codeIdF}.cache.json.tmp`);
-    expect(fs.existsSync(tmp)).toBe(false);
+    const baseName = `${codeIdF}.cache.json`;
+    const leftover = fs.readdirSync(getIdlCacheDir())
+      .filter((f) => f.startsWith(baseName + '.') && f.endsWith('.tmp'));
+    expect(leftover).toEqual([]);
   });
 });

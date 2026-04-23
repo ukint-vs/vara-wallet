@@ -55,12 +55,22 @@ describe('writeUserFile', () => {
 });
 
 describe('writeUserFileAtomic', () => {
-  it('ends with final file at mode 0600 and no .tmp leftover', () => {
+  // The tmp sibling uses `.<pid>.tmp` to avoid races between concurrent
+  // writers targeting the same file. Assert no `*.tmp` sibling is left behind
+  // after a successful write, regardless of pid.
+  function tmpSiblings(filePath: string): string[] {
+    const dir = path.dirname(filePath);
+    const base = path.basename(filePath);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => f.startsWith(base + '.') && f.endsWith('.tmp'));
+  }
+
+  it('ends with final file at mode 0600 and no .tmp sibling leftover', () => {
     const file = path.join(testDir, 'atomic-a', 'x.json');
     writeUserFileAtomic(file, '{"ok":true}');
 
     expect(fs.existsSync(file)).toBe(true);
-    expect(fs.existsSync(file + '.tmp')).toBe(false);
+    expect(tmpSiblings(file)).toEqual([]);
     expect(mode(file)).toBe('600');
   });
 
@@ -80,6 +90,20 @@ describe('writeUserFileAtomic', () => {
     writeUserFileAtomic(file, 'second');
 
     expect(fs.readFileSync(file, 'utf-8')).toBe('second');
-    expect(fs.existsSync(file + '.tmp')).toBe(false);
+    expect(tmpSiblings(file)).toEqual([]);
+  });
+
+  it('ensures every ancestor created by the call is 0700 (not just the leaf)', () => {
+    // Exercise the regression fix: mkdir recursive with mode only chmods the
+    // leaf. The secure-file helper walks ancestors and chmods each one.
+    const grandparent = path.join(testDir, 'atomic-d');
+    const parent = path.join(grandparent, 'sub');
+    const file = path.join(parent, 'x.json');
+
+    writeUserFileAtomic(file, 'data');
+
+    expect(mode(grandparent)).toBe('700');
+    expect(mode(parent)).toBe('700');
+    expect(mode(file)).toBe('600');
   });
 });

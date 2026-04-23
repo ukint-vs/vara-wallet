@@ -37,7 +37,10 @@ function normalizeCodeId(codeId: string): string {
   return codeId.replace(/^0x/i, '').toLowerCase();
 }
 
-function entryPath(codeId: string): string {
+/** Canonical cache filename for a given codeId. Exported so callers (e.g.
+ *  the `idl import` command) can echo the written path without re-deriving
+ *  it and risking divergence. */
+export function getIdlEntryPath(codeId: string): string {
   return path.join(getIdlCacheDir(), `${normalizeCodeId(codeId)}.cache.json`);
 }
 
@@ -47,7 +50,7 @@ function entryPath(codeId: string): string {
  * can see why a hit didn't land; quiet callers see a transparent miss.
  */
 export function readCachedIdl(codeId: string): CacheFile | null {
-  const file = entryPath(codeId);
+  const file = getIdlEntryPath(codeId);
   let raw: string;
   try {
     raw = fs.readFileSync(file, 'utf-8');
@@ -77,7 +80,7 @@ export function readCachedIdl(codeId: string): CacheFile | null {
  * would choke on. Content-addressed key makes last-write-wins safe.
  */
 export function writeCachedIdl(codeId: string, idl: string, meta: IdlCacheMeta): void {
-  const file = entryPath(codeId);
+  const file = getIdlEntryPath(codeId);
   const payload = JSON.stringify({ idl, meta }, null, 2) + '\n';
   writeUserFileAtomic(file, payload);
 }
@@ -90,7 +93,7 @@ export function writeCachedIdl(codeId: string, idl: string, meta: IdlCacheMeta):
  * Non-existent entries are silently accepted.
  */
 export function evictCachedIdl(codeId: string): void {
-  const file = entryPath(codeId);
+  const file = getIdlEntryPath(codeId);
   try {
     fs.unlinkSync(file);
     verbose(`IDL cache evicted: ${normalizeCodeId(codeId)}`);

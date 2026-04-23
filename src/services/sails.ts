@@ -2,6 +2,7 @@ import { GearApi } from '@gear-js/api';
 import { Sails, SailsProgram } from 'sails-js';
 import { SailsIdlParser as V1Parser } from 'sails-js-parser';
 import { SailsIdlParser as V2Parser } from 'sails-js/parser';
+import type { Option, Bytes } from '@polkadot/types';
 import * as fs from 'fs';
 import { CliError, errorMessage, verbose, addressToHex } from '../utils';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
@@ -340,28 +341,24 @@ async function resolveIdl(
  */
 async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string | null> {
   verbose(`Fetching original WASM from chain for codeId ${codeId}...`);
-  let option;
+  let option: Option<Bytes>;
   try {
-    option = await api.query.gearProgram.originalCodeStorage(codeId);
+    option = await api.query.gearProgram.originalCodeStorage(codeId) as Option<Bytes>;
   } catch (err) {
     verbose(`originalCodeStorage RPC failed: ${errorMessage(err)}`);
     return null;
   }
-  // @polkadot/api returns Option<Bytes>; `.isSome` / `.unwrap()` are the
-  // idiomatic accessors (mirroring the existing api.program.* style).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const opt = option as any;
-  if (!opt?.isSome) {
+  if (!option.isSome) {
     verbose(`originalCodeStorage returned None for codeId ${codeId}`);
     return null;
   }
-  const bytes: Uint8Array = opt.unwrap().toU8a();
+  const bytes = option.unwrap().toU8a();
   if (bytes.length > MAX_WASM_BYTES) {
     verbose(`WASM size ${bytes.length} exceeds MAX_WASM_BYTES; refusing to parse`);
     return null;
   }
   try {
-    const idl = extractSailsIdl(bytes);
+    const idl = await extractSailsIdl(bytes);
     if (idl === null) {
       verbose(`No sails:idl custom section in WASM for codeId ${codeId}`);
     }

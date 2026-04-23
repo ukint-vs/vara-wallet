@@ -38,47 +38,47 @@ function buildWasm(customSections: Array<{ name: string; payload: Uint8Array }>)
 describe('extractSailsIdl', () => {
   const encoder = new TextEncoder();
 
-  it('returns the payload when a sails:idl custom section is present', () => {
+  it('returns the payload when a sails:idl custom section is present', async () => {
     const idl = 'service Counter { query Value : () -> u32; };';
     const wasm = buildWasm([{ name: 'sails:idl', payload: encoder.encode(idl) }]);
-    expect(extractSailsIdl(wasm)).toBe(idl);
+    await expect(extractSailsIdl(wasm)).resolves.toBe(idl);
   });
 
-  it('returns null when no custom sections are present', () => {
-    expect(extractSailsIdl(WASM_HEADER)).toBeNull();
+  it('returns null when no custom sections are present', async () => {
+    await expect(extractSailsIdl(WASM_HEADER)).resolves.toBeNull();
   });
 
-  it('returns null when only other-named custom sections exist', () => {
+  it('returns null when only other-named custom sections exist', async () => {
     const wasm = buildWasm([
       { name: 'name', payload: encoder.encode('irrelevant') },
       { name: 'producers', payload: encoder.encode('also irrelevant') },
     ]);
-    expect(extractSailsIdl(wasm)).toBeNull();
+    await expect(extractSailsIdl(wasm)).resolves.toBeNull();
   });
 
-  it('finds sails:idl among multiple custom sections', () => {
+  it('finds sails:idl among multiple custom sections', async () => {
     const idl = '!@sails: 1.0.0-beta.1\nservice Foo@0x00 {}';
     const wasm = buildWasm([
       { name: 'name', payload: encoder.encode('noise') },
       { name: 'sails:idl', payload: encoder.encode(idl) },
       { name: 'producers', payload: encoder.encode('trailing') },
     ]);
-    expect(extractSailsIdl(wasm)).toBe(idl);
+    await expect(extractSailsIdl(wasm)).resolves.toBe(idl);
   });
 
-  it('returns an empty string for an empty sails:idl payload', () => {
+  it('returns an empty string for an empty sails:idl payload', async () => {
     const wasm = buildWasm([{ name: 'sails:idl', payload: new Uint8Array() }]);
-    expect(extractSailsIdl(wasm)).toBe('');
+    await expect(extractSailsIdl(wasm)).resolves.toBe('');
   });
 
-  it('throws on invalid WASM bytes (wrong magic)', () => {
+  it('rejects on invalid WASM bytes (wrong magic)', async () => {
     const bad = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00]);
-    expect(() => extractSailsIdl(bad)).toThrow();
+    await expect(extractSailsIdl(bad)).rejects.toThrow();
   });
 
-  it('throws on non-UTF-8 payload in sails:idl', () => {
+  it('rejects on non-UTF-8 payload in sails:idl', async () => {
     // 0xff is not a valid UTF-8 start byte.
     const wasm = buildWasm([{ name: 'sails:idl', payload: new Uint8Array([0xff, 0xfe, 0xfd]) }]);
-    expect(() => extractSailsIdl(wasm)).toThrow();
+    await expect(extractSailsIdl(wasm)).rejects.toThrow();
   });
 });
