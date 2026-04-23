@@ -15,12 +15,19 @@ export interface InitOptions {
   argsFile?: string;
 }
 
-export async function resolveInitPayload(options: InitOptions): Promise<string> {
+/**
+ * Resolve the init payload AND the resolved constructor name (for
+ * IDL-based encoding) or `null` (for raw `--payload` flows). Used by
+ * the dry-run branches so the dry-run JSON can report the actually-
+ * selected constructor name when --init was auto-resolved from a
+ * single-ctor IDL.
+ */
+export async function resolveInitDescriptor(options: InitOptions): Promise<{ payload: string; init: string | null }> {
   if (!options.idl) {
     if (options.init) throw new CliError('--init requires --idl', 'MISSING_IDL');
     if (options.args) throw new CliError('--args requires --idl', 'MISSING_IDL');
     if (options.argsFile) throw new CliError('--args-file requires --idl', 'MISSING_IDL');
-    return options.payload;
+    return { payload: options.payload, init: null };
   }
 
   if (options.payload !== '0x') {
@@ -78,13 +85,17 @@ export async function resolveInitPayload(options: InitOptions): Promise<string> 
   verbose(`Encoding constructor "${initName}" with ${args.length} arg(s)`);
   args = coerceArgsAuto(args, ctor.args || [], sails);
   try {
-    return ctor.encodePayload(...args);
+    return { payload: ctor.encodePayload(...args), init: initName };
   } catch (err) {
     throw new CliError(
       `Failed to encode constructor args: ${err instanceof Error ? err.message : String(err)}`,
       'ENCODE_ERROR',
     );
   }
+}
+
+export async function resolveInitPayload(options: InitOptions): Promise<string> {
+  return (await resolveInitDescriptor(options)).payload;
 }
 
 export function registerProgramCommand(program: Command): void {
@@ -126,15 +137,18 @@ export function registerProgramCommand(program: Command): void {
 
       // Resolve init payload first — it does not need network or an account.
       // This must happen before account resolution so --dry-run works on
-      // machines with no wallet configured.
-      const initPayload = await resolveInitPayload(options);
+      // machines with no wallet configured. resolveInitDescriptor returns
+      // the constructor name actually selected (auto or explicit) so the
+      // dry-run output reports it accurately.
+      const initDesc = await resolveInitDescriptor(options);
+      const initPayload = initDesc.payload;
 
       if (options.dryRun) {
         output({
           kind: 'program-upload',
-          init: options.init ?? null,
+          init: initDesc.init,
           initPayload,
-          value: options.value !== '0' ? options.value : '0',
+          value: options.value,
           gasLimit: options.gasLimit ?? null,
           willSubmit: false,
         });
@@ -226,15 +240,18 @@ export function registerProgramCommand(program: Command): void {
 
       // Resolve init payload first — no account or network required, so
       // --dry-run can run on machines with no wallet configured.
-      const initPayload = await resolveInitPayload(options);
+      // resolveInitDescriptor returns the resolved constructor name for
+      // accurate dry-run reporting (auto-selected or explicit).
+      const initDesc = await resolveInitDescriptor(options);
+      const initPayload = initDesc.payload;
 
       if (options.dryRun) {
         output({
           kind: 'program-deploy',
-          init: options.init ?? null,
+          init: initDesc.init,
           codeId,
           initPayload,
-          value: options.value !== '0' ? options.value : '0',
+          value: options.value,
           gasLimit: options.gasLimit ?? null,
           willSubmit: false,
         });

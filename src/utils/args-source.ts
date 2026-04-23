@@ -173,8 +173,10 @@ function readStdinSync(): string {
 
 /**
  * Drop the trailing " in JSON at position N" tail from a SyntaxError
- * message — we surface position separately above.
+ * message — we surface position separately above. Handles both Node 20
+ * (`... at position N`) and Node 22+ (`... at position N (line L column C)`)
+ * formats.
  */
 function stripPositionTail(msg: string): string {
-  return msg.replace(/\s+in JSON at position \d+\s*$/, '');
+  return msg.replace(/\s+in JSON at position \d+(?:\s*\(line \d+ column \d+\))?\s*$/, '');
 }
