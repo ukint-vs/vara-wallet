@@ -27,14 +27,15 @@ export function outputError(error: unknown): void {
 
 export function formatError(error: unknown): { error: string; code: string } & ErrorMeta {
   if (error instanceof CliError) {
-    const base: { error: string; code: string } & ErrorMeta = {
-      error: error.message,
+    // Sanitize the message — CliError messages can include surfaced strings
+    // (e.g. raw program panic text) that may carry secrets in pathological
+    // cases. Spreading meta first then base ensures `error`/`code` always win
+    // if a caller accidentally puts those keys in `meta`.
+    const base = {
+      error: sanitizeErrorMessage(error.message),
       code: error.code,
     };
-    if (error.meta) {
-      return { ...base, ...error.meta };
-    }
-    return base;
+    return error.meta ? { ...error.meta, ...base } : base;
   }
 
   if (error instanceof Error) {
@@ -98,8 +99,12 @@ export function classifyProgramError(err: unknown): CliError {
       ? JSON.stringify(err)
       : String(err);
 
-  // panicked with '<msg>' — capture inner panic string
-  const panicMatch = raw.match(/panicked with ['"]([^'"]*)['"]/);
+  // panicked with '<msg>' — capture inner panic string.
+  // Use a non-greedy match anchored against the standard Rust panic suffix
+  // (` at <file>:<line>`) or end-of-string, so panic strings containing
+  // nested quotes (e.g. `panicked with 'user "alice" not found' at lib.rs:1`)
+  // are captured in full rather than truncated at the first inner quote.
+  const panicMatch = raw.match(/panicked with ['"]([\s\S]*?)['"](?:\s+at\s|$)/);
   if (panicMatch) {
     return new CliError(
       `Program execution failed: ${raw}`,
@@ -124,12 +129,27 @@ export function classifyProgramError(err: unknown): CliError {
     );
   }
 
-  if (raw.includes('ProgramNotFound') || raw.includes('does not exist')) {
+  // Require the "does not exist" phrase to be qualified by "Program" so we
+  // do not misclassify generic "Account does not exist" / "File does not
+  // exist" errors as a program-level not_found.
+  if (raw.includes('ProgramNotFound') || /[Pp]rogram\b[^\n]*\bdoes not exist\b/.test(raw)) {
     return new CliError(
       `Program execution failed: ${raw}`,
       'PROGRAM_ERROR',
       { reason: 'not_found' },
     );
+  }
+
+  // No program-specific signature matched. Before defaulting to PROGRAM_ERROR,
+  // check whether this is actually a transport / system error bubbling up from
+  // the RPC layer (timeout, websocket disconnect, etc). Misclassifying those
+  // as PROGRAM_ERROR tells agent consumers "the program failed, do not retry"
+  // when the right signal is "the network blipped, retry it".
+  if (err instanceof Error) {
+    const code = classifyError(err);
+    if (code !== 'INTERNAL_ERROR') {
+      return new CliError(err.message, code);
+    }
   }
 
   return new CliError(`Program execution failed: ${raw}`, 'PROGRAM_ERROR');

@@ -154,4 +154,70 @@ describe('classifyProgramError', () => {
     expect(formatted.reason).toBe('panic');
     expect(formatted.programMessage).toBe('zero error');
   });
+
+  it('captures full panic message when it contains nested quotes', () => {
+    const err = new Error(
+      `panicked with 'user "alice" not found in registry' at src/svc.rs:99`,
+    );
+    const result = classifyProgramError(err);
+    expect(result.meta?.reason).toBe('panic');
+    expect(result.meta?.programMessage).toBe('user "alice" not found in registry');
+  });
+
+  it('does NOT classify generic "does not exist" errors (e.g. account) as not_found', () => {
+    const err = new Error('Account 0xdead does not exist');
+    const result = classifyProgramError(err);
+    // No program-specific signature, no transport signature -> default
+    // PROGRAM_ERROR with no reason. Critically, NOT { reason: 'not_found' }.
+    expect(result.code).toBe('PROGRAM_ERROR');
+    expect(result.meta).toBeUndefined();
+  });
+
+  it('preserves transport TIMEOUT classification when program path bubbles a timeout', () => {
+    // Simulates queryBuilder.call() rejecting because the RPC roundtrip timed out.
+    // The fix must NOT mask this as PROGRAM_ERROR — agents distinguish "retry the
+    // network" from "do not retry, the program logic failed".
+    const err = new Error('Request timeout after 60s');
+    const result = classifyProgramError(err);
+    expect(result.code).toBe('TIMEOUT');
+    expect(result.meta).toBeUndefined();
+  });
+
+  it('preserves transport CONNECTION_FAILED classification through the program path', () => {
+    const err = new Error('WebSocket connect failed: ECONNREFUSED');
+    const result = classifyProgramError(err);
+    expect(result.code).toBe('CONNECTION_FAILED');
+  });
+
+  it('preserves NOT_FOUND transport classification (e.g. ENOENT) through the program path', () => {
+    // Important: program-level "not_found" requires the word "Program" so this
+    // ENOENT-style error must fall through to the transport classifier and come
+    // back as NOT_FOUND, not as PROGRAM_ERROR { reason: 'not_found' }.
+    const err = new Error('ENOENT: no such file');
+    const result = classifyProgramError(err);
+    expect(result.code).toBe('NOT_FOUND');
+    expect(result.meta).toBeUndefined();
+  });
+});
+
+describe('formatError CliError edge cases', () => {
+  it('sanitizes seeds in CliError messages', () => {
+    const err = new CliError('Failed to sign with //Alice', 'SOME_CODE');
+    const result = formatError(err);
+    expect(result.error).not.toContain('//Alice');
+    expect(result.error).toContain('//***');
+  });
+
+  it('does not let meta keys overwrite "error" or "code"', () => {
+    const err = new CliError('real message', 'REAL_CODE', {
+      // Hostile / accidental shadowing of the canonical fields.
+      error: 'overridden!',
+      code: 'OVERRIDDEN!',
+      reason: 'panic',
+    });
+    const result = formatError(err);
+    expect(result.error).toBe('real message');
+    expect(result.code).toBe('REAL_CODE');
+    expect(result.reason).toBe('panic');
+  });
 });
