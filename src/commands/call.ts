@@ -4,7 +4,7 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { loadSailsAuto, describeSailsProgram, type LoadedSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -119,7 +119,8 @@ async function executeQuery(
     // Use default zero address if no account configured
   }
 
-  const result = await queryBuilder.call();
+  const raw = await queryBuilder.call();
+  const result = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
 
   output({ result });
 }
@@ -191,12 +192,14 @@ async function executeFunction(
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
 
+  const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
+
   output({
     txHash: result.txHash,
     blockHash: result.blockHash,
     blockNumber,
     messageId: result.msgId,
     voucherId: options.voucher ?? null,
-    result: response,
+    result: decoded,
   });
 }

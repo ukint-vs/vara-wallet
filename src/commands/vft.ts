@@ -7,7 +7,7 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { loadSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex } from '../utils';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -166,6 +166,7 @@ async function executeVftTx(
     throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
+  const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 
   output({
     txHash: result.txHash,
@@ -173,7 +174,7 @@ async function executeVftTx(
     blockNumber,
     messageId: result.msgId,
     voucherId: voucher ?? null,
-    result: response,
+    result: decoded,
   });
 }
 
