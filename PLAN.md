@@ -1,278 +1,263 @@
-# Issue #20 — `--args-file <path>` + `--dry-run` for `call`, `encode`, `program upload`, `program deploy`
+# Phase 1 mega-PR — IDL-aware Sails event decoding
 
-## Goal
+Closes #36 (decoded events in `watch`/`subscribe`), #37 (decoded events in `call` reply).
+Issue #32 (recursive decode of Option/U256) shipped in PR #40 already and is wired into `call.ts`. This branch reuses that walker by adding a thin `decodeEventData` entry point.
 
-Eliminate shell-escape failures for nested-JSON `--args` (e.g. 64-byte `vec u8` signature arrays) by accepting a JSON args file. Add `--dry-run` to mutating commands so agents can preview encoded SCALE payloads without signing or submitting.
+Baseline: `main` at `ed32084`; `npm test` = **446 passing**.
 
-## Background
+## /autoplan critique applied
 
-Live test on 2026-04-23 shows that bash mangles a `SignedBetQuote` struct (with a 64-byte `vec u8` signature) on `--args "$VAR"` interpolation. Result reaches the wallet as broken JSON and surfaces as `{"error":"[object Object]","code":"UNKNOWN_ERROR"}`. Workaround `--args "$(cat file)"` works but is fragile.
+Codex found 8 substantive issues against the v1 plan. All addressed below. Summary of changes:
 
-This patch:
-1. Adds `--args-file <path>` (with `-` for stdin) on `call`, `encode`, `program upload`, `program deploy`.
-2. Adds `--dry-run` on `call`, `program upload`, `program deploy` — encode payload and exit (no `signAndSend`, no `queryBuilder.call()`).
+| # | Severity | Issue | Resolution |
+|---|----------|-------|------------|
+| 1 | HIGH | `call.ts` block-event scoping ignores extrinsic phase → cross-tx event bleed | Filter by phase index of OUR extrinsic, plus `api.events.gear.UserMessageSent.is(...)` typed check |
+| 2 | HIGH | Sails `events[E].is()` checks destination=ZERO but NOT source=programId | All event-decoding paths must pre-filter `message.source === programIdHex` before `is()` |
+| 3 | MED | `--idl` gating is too narrow; `loadSailsAuto` resolves chain IDLs | Auto-attempt `loadSailsAuto` in watch/subscribe when programId is given; opt-out via `--no-decode` |
+| 4 | MED | API contract was self-contradictory on ambiguous bare names | Hard-fail on ambiguous bare Sails name; print `Service/Event` alternatives |
+| 5 | MED | Sails-first precedence breaks back-compat + `MessageWaken` typo | Gear-first precedence; bare names resolve to Gear pallet first; Sails requires `Service/Event` form OR new `--sails-event` flag |
+| 6 | MED | Output shape: reusing `event` for Sails name + adding `rawPayload` collides with raw schema | Namespace decoded data as `sails: {service, event, data}`; keep raw schema (event, payload, source, …) untouched |
+| 7 | MED | `listEventNames` ignores v2 `service.extends` | Walk `service.extends` recursively |
+| 8 | LOW | 12 tests insufficient | Add 5 more (cross-extrinsic block, ambiguous name, Gear-vs-Sails precedence, extends, persistence-shape stability); target +17 → 463 total |
 
-## Scope expansion (autoplan)
+Pre-existing bug noted but **out of scope**: `MessageWaken` should be `MessageWoken` per `IGearEvent` typings (`shared.ts:31`). The current vocab still works at runtime because `subscribeToGearEvent` accepts arbitrary keys, but the typing is wrong. Filing as separate issue, not fixing here — touching `VALID_GEAR_EVENTS` belongs in a back-compat audit, not this PR.
 
-Original plan only patched `call.ts` and `encode.ts`. Autoplan-CEO flagged that `program upload`/`deploy` parse `--args` JSON identically (`src/commands/program.ts:59`) and suffer the same shell-escape bug for Sails constructors with complex init types. By P1 (completeness) + P2 (boil lakes), expand to those subcommands too. Same shape, same helper, ~1 hour CC additional effort.
+## Files
 
-## File-by-file changes
+### NEW
 
-### NEW: `src/utils/args-source.ts`
+1. **`src/services/sails-events.ts`**
 
-Single helper used by `call.ts`, `encode.ts`, `program.ts`. One exported function:
-
-```ts
-export interface ArgsSourceOptions {
-  args?: string;          // raw --args JSON string (undefined when user did NOT pass --args)
-  argsFile?: string;      // --args-file value, or '-' for stdin
-  argsDefault?: string;   // default when neither is supplied (call uses '[]')
-}
-
-/**
- * Resolve effective args JSON source per mutual-exclusion + stdin rules,
- * then JSON.parse it.
- *
- * - --args + --args-file together → CliError(INVALID_ARGS_SOURCE)
- * - --args-file '-' → reads process.stdin to EOF (sync via fs.readFileSync(0))
- *   - Rejects when process.stdin.isTTY === true (no pipe attached)
- * - File-size cap of 10 MB (defensive — args files are normally tiny)
- * - On parse failure: CliError(INVALID_ARGS) with parse-position info,
- *   never echoing the file path (privacy: file may contain seeds)
- *
- * Returns the parsed value (caller decides whether to wrap non-arrays).
- */
-export function loadArgsJson(opts: ArgsSourceOptions): unknown;
-```
-
-Implementation:
-
-- **Mutual exclusion:** when both `args` (defined and not the default sentinel) and `argsFile` are set → throw:
-  `CliError("Cannot use --args and --args-file together; pick one. (--args for inline JSON, --args-file for file path or - for stdin)", 'INVALID_ARGS_SOURCE')`
-  - Detection: helper accepts the *raw* user-provided value. We drop the commander `'[]'` default on `--args` so `undefined` means "not user-supplied". Helper substitutes `argsDefault` only when both are absent. Backward-compat: `'[]'` still applies for `call`.
-
-- **Stdin (`-`):**
-  - First check `process.stdin.isTTY`. If true → `CliError("--args-file '-' requires JSON piped on stdin (got an interactive terminal). Pipe the JSON: 'cat args.json | vara-wallet ...'", 'STDIN_IS_TTY')`.
-  - Read via `fs.readFileSync(0, 'utf-8')` (POSIX FD 0).
-  - Empty input → `CliError("--args-file '-' received empty input on stdin.", 'INVALID_ARGS')`.
-
-- **File read:**
-  - `fs.statSync(path)` — if size > 10_485_760 bytes → `CliError("Args file too large (max 10 MB).", 'ARGS_FILE_TOO_LARGE')`.
-  - `fs.readFileSync(path, 'utf-8')`.
-  - Read errors (ENOENT, EACCES, EISDIR): wrap as `CliError("Failed to read args file: " + sysErrorMsg, 'ARGS_FILE_READ_ERROR')`. The system message includes the path — fine. The existing `sanitizeErrorMessage` will scrub any hex blobs in path strings (e.g. `/tmp/0xABCD.../args.json`).
-
-- **JSON.parse failures (CRITICAL — privacy):**
-  - Catch `SyntaxError`. Extract position from message via regex `/at position (\d+)/`.
-  - Build a NEW error message that includes ONLY: line/column/position info + the truncated parser snippet. NEVER include the file path or the file content beyond the snippet.
-  - `CliError("Failed to parse args JSON at position " + pos + ": " + parserHint, 'INVALID_ARGS')`.
-  - When position extraction fails, fall back to `'Failed to parse args JSON: ' + sanitizedSyntaxErrorMessage`. The SyntaxError.message from native `JSON.parse` does NOT include the input string or the file path — verified across Node 20-24. So the fallback is safe.
-
-### MODIFY: `src/commands/call.ts`
-
-1. Add options:
-   - `.option('--args-file <path>', 'read --args JSON from file (use - for stdin)')`
-   - `.option('--dry-run', 'encode the payload and exit without signing or submitting (no account required)')`
-2. Drop the `'[]'` default on `--args` so absence is detectable.
-3. Replace inline JSON.parse block (lines 58-67) with `loadArgsJson({ args: options.args, argsFile: options.argsFile, argsDefault: '[]' })`.
-4. Mutual exclusion: `--estimate` + `--dry-run` together → `CliError("Cannot use --estimate and --dry-run together; pick one.", 'CONFLICTING_OPTIONS')`.
-5. Pass `dryRun` into `executeQuery`/`executeFunction` via the options bag.
-6. Dry-run branch in `executeQuery` (after `coerceArgsAuto`):
-   - Use `query.encodePayload(...args)` to get the encoded hex.
-   - Emit:
-     ```json
-     {"kind": "query", "service": "Svc", "method": "Mtd", "args": [...coerced...], "encodedPayload": "0x...", "willSubmit": false}
-     ```
-   - Return — do NOT call `queryBuilder.call()`.
-7. Dry-run branch in `executeFunction` (BEFORE `resolveAccount`):
-   - Build `txBuilder = func(...args)` directly.
-   - Read `txBuilder.payload` (verified `node_modules/sails-js/lib/transaction-builder.d.ts:52`).
-   - Emit:
-     ```json
-     {"kind": "function", "service": "Svc", "method": "Mtd", "args": [...coerced...], "encodedPayload": "0x...",
-      "value": "0", "gasLimit": null, "voucherId": null, "willSubmit": false}
-     ```
-     Include `value`, `gasLimit`, `voucherId` only when user passed them (otherwise `null` / omitted) for round-trip diagnostics.
-   - Return — no account resolution, no `calculateGas`, no `signAndSend`.
-   - Dry-run on functions does NOT require an account (key DX win — agents can dry-run on machines with no wallet).
-
-### MODIFY: `src/commands/encode.ts`
-
-1. Add `.option('--args-file <path>', 'read JSON value from file (use - for stdin)')` on the `encode` subcommand only (not `decode` — no args concept).
-2. Mutual exclusion: positional `<value>` + `--args-file` together → `INVALID_ARGS_SOURCE`. Easiest: change positional from `<value>` to `[value]` (optional), then validate one or the other is present.
-3. Routing:
-   - If `--args-file` is set → use `loadArgsJson({ argsFile, argsDefault: undefined })`. Strict JSON, no string fallback.
-   - Else if positional `value` is set → keep existing `try { JSON.parse } catch { use raw string }` behavior (backward compat — `encode text "hello"` works without quoting).
-   - Else → `CliError("Provide a value (positional) or --args-file <path>", 'MISSING_ENCODING_INPUT')`.
-
-### MODIFY: `src/commands/program.ts`
-
-Apply the same patch shape to `upload` and `deploy` subcommands and to `resolveInitPayload`:
-
-1. Both subcommands: add `.option('--args-file <path>', 'read constructor --args JSON from file (use - for stdin)')` and `.option('--dry-run', 'encode the constructor payload and exit without uploading')`.
-2. Extend `InitOptions` interface with `argsFile?: string`. Update `resolveInitPayload` to use `loadArgsJson` when `argsFile` is set:
    ```ts
-   if (options.args || options.argsFile) {
-     const parsed = loadArgsJson({ args: options.args, argsFile: options.argsFile });
-     args = Array.isArray(parsed) ? parsed : [parsed];
+   import type { UserMessageSent, HexString } from '@gear-js/api';
+   import type { LoadedSails } from './sails';
+   import { CliError } from '../utils';
+   import { decodeEventData } from '../utils/decode-sails-result';
+
+   export interface DecodedSailsEvent {
+     service: string;
+     event: string;
+     data: unknown;
    }
+
+   /** Try to decode a UserMessageSent into a typed Sails event. Caller MUST
+    *  pre-filter by message.source — sails-js .is() only checks destination
+    *  and the payload prefix, NOT the source program. Returns null when no
+    *  service/event in this IDL recognizes the payload. */
+   export function decodeSailsEvent(
+     sails: LoadedSails,
+     userMessageSent: UserMessageSent,
+   ): DecodedSailsEvent | null;
+
+   /** Flat list of all (service, event) names declared in the IDL, including
+    *  events from `service.extends` (v2 inherited services). */
+   export function listEventNames(sails: LoadedSails): Array<{ service: string; event: string }>;
+
+   /** Find a Sails event by name. Accepts "Service/Event" (always unambiguous)
+    *  or bare "Event" name when it appears in exactly one service. Throws
+    *  CliError("AMBIGUOUS_EVENT") on multi-service bare-name match with
+    *  the alternatives listed. Returns null when the name is unknown. */
+   export function resolveEventName(
+     sails: LoadedSails,
+     name: string,
+   ): { service: string; event: string } | null;
    ```
-3. Drop the inline JSON.parse block (lines 56-64).
-4. Dry-run branch: in both `upload.action` and `deploy.action`, AFTER `resolveInitPayload(options)` returns the encoded hex, if `options.dryRun` is true:
-   - Emit:
-     ```json
-     {"kind": "program-upload" | "program-deploy", "init": "<ctorName-or-null>",
-      "initPayload": "0x...", "value": "...", "gasLimit": null, "willSubmit": false}
-     ```
-   - Skip account resolution, gas calculation, and `executeTx`. Return immediately.
-   - Account resolution must move to AFTER the dry-run check (currently it's first). For `upload`, `wasmPath` existence check must still run (it's a precondition for resolving init payload via `--idl`). Account resolution itself moves below.
 
-### Tests — NEW FILE: `src/__tests__/args-source.test.ts`
+   Implementation:
+   - Walks `sails.services[S].events[E]` (shape identical for v1 and v2 — verified at `node_modules/sails-js/lib/sails.js:153` and `sails-idl-v2.js:320`).
+   - For v2, recursively flatten `service.extends` (verified `service.extends` at `sails-idl-v2.d.ts:9`).
+   - For each event, check `events[E].is(userMessageSent)`. First match wins.
+   - Decoded payload runs through `decodeEventData` so nested U256/Option/etc. normalize identically to `call` replies.
+   - `resolveEventName('Foo')` searches all services. Zero matches → `null`. Multi matches → throws `CliError('Ambiguous event "Foo" — matches A/Foo, B/Foo. Use full Service/Event form.', 'AMBIGUOUS_EVENT')`.
 
-Unit tests for `loadArgsJson`:
-- Returns parsed array from inline `args`.
-- Returns parsed array from file path.
-- `'-'` triggers stdin read (mock `fs.readFileSync` with FD `0`, also mock `process.stdin.isTTY = false`).
-- `'-'` with isTTY = true → throws `STDIN_IS_TTY`.
-- Both `args` and `argsFile` set → throws `INVALID_ARGS_SOURCE`.
-- Malformed JSON in file → throws `INVALID_ARGS`. **Asserts error message does NOT contain the file path.**
-- Missing file → throws `ARGS_FILE_READ_ERROR`.
-- File > 10 MB → throws `ARGS_FILE_TOO_LARGE` (mock `fs.statSync` to return `{ size: 11000000 }`).
-- Empty stdin with `'-'` → throws.
-- Default behavior: neither set, `argsDefault: '[]'` → returns `[]`.
+2. **`src/__tests__/sails-events.test.ts`** — `listEventNames`, `resolveEventName`, decode-no-match (mocked UserMessageSent), v2 extends propagation. ~5 tests.
 
-### Tests — NEW FILE: `src/__tests__/args-file-encode.test.ts`
+3. **`src/__tests__/sails-events-decode.test.ts`** — uses real IDL fixtures (existing `sample-v2-events.idl` for v2; bundled VFT IDL for v1) to verify decoded payload shape. ~3 tests.
 
-Round-trip integration test: 64-byte `vec u8` parity.
-- Build sails program from `sample-v2.idl` (`Demo/Echo` takes `data: [u8], hash: [u8; 32]`).
-- Construct args twice — once via inline `loadArgsJson({ args: '[hex64bytes, hex32bytes]' })`, once via `loadArgsJson({ argsFile: tmpPath })`.
-- Run both through `coerceArgsAuto` and `func.encodePayload(...args)`.
-- Assert: byte-identical encoded hex.
+4. **`src/__tests__/call-events.test.ts`** — verifies `executeFunction` block-event filtering with PHASE-CORRELATED scoping. Mocks:
+   - `api.at(blockHash)` returns an `apiAt` whose `query.system.events()` yields an array of records with `{ phase, event }`.
+   - Records: one UserMessageSent in our extrinsic phase from our programId (✓ included), one UserMessageSent in a DIFFERENT phase from our programId (✗ excluded — wrong extrinsic), one UserMessageSent in our phase from a different program (✗ excluded — wrong source), one MessagesDispatched in our phase (✗ excluded — wrong type).
+   - Asserts `events: [{service, event, data}]` contains exactly the one match.
+   ~4 tests covering each filter dimension.
 
-### Tests — NEW FILE: `src/__tests__/dry-run.test.ts`
+5. **`src/__tests__/watch-decoded.test.ts`** — verifies the new `formatUserMessageSentMaybeDecoded` helper. Uses real v2 sails instance + a synthesized `UserMessageSent`-shaped object (constructed via the registry's `createType` for the wire payload). Asserts decoded path emits `{event: 'UserMessageSent', payload: '0x…', sails: {service, event, data}, ...rawFields}` and undecoded path (no IDL) emits the same shape minus `sails`. ~3 tests.
 
-Extract a small pure helper from each command's dry-run branch (`buildCallDryRun`, `buildProgramDryRun`) and unit-test:
-- `buildCallDryRun({ kind: 'function', ... })` returns expected shape.
-- `buildCallDryRun({ kind: 'query', ... })` returns expected shape.
-- `--estimate` + `--dry-run` exclusion: helper or command-level test that the option-validator throws `CONFLICTING_OPTIONS`.
-- Mock `txBuilder` with a `signAndSend` jest.fn — assert NOT called when `dryRun: true`.
-- Mock `queryBuilder` with a `call` jest.fn — assert NOT called when `dryRun: true`.
+6. **`src/__tests__/subscribe-filter-resolution.test.ts`** — verifies `resolveSubscribeFilter`:
+   - Bare `Foo` with Gear vocab match → `{kind: pallet, event: 'UserMessageSent'}`
+   - `Service/Event` form with Sails IDL → `{kind: sails, ...}`
+   - Bare `Posted` matched in IDL only → `{kind: sails, ...}`
+   - Ambiguous bare → throws `AMBIGUOUS_EVENT`
+   - `--pallet-event` flag forces pallet path even with IDL.
+   ~5 tests.
 
-## Error shapes (exact)
+### MODIFIED
 
-```jsonc
-// Mutual exclusion
-{"error": "Cannot use --args and --args-file together; pick one. (--args for inline JSON, --args-file for file path or - for stdin)", "code": "INVALID_ARGS_SOURCE"}
+7. **`src/utils/decode-sails-result.ts`** — append `export const decodeEventData = decodeSailsResult;` (one line; no behavior change). Both `executeFunction` reply and `decodeSailsEvent` payload share the same walker so #32's fix automatically reaches event consumers.
 
-// Estimate + dry-run conflict
-{"error": "Cannot use --estimate and --dry-run together; pick one.", "code": "CONFLICTING_OPTIONS"}
+8. **`src/utils/index.ts`** — re-export `decodeEventData`.
 
-// Malformed JSON (NO PATH, NO CONTENT BEYOND SNIPPET)
-{"error": "Failed to parse args JSON at position 22: Unexpected token } in JSON", "code": "INVALID_ARGS"}
+9. **`src/commands/subscribe/shared.ts`** — add helpers:
 
-// Missing file (path is OK — system error, no file content leaks)
-{"error": "Failed to read args file: ENOENT: no such file or directory, open '/tmp/missing.json'", "code": "ARGS_FILE_READ_ERROR"}
+   ```ts
+   /** Try to decode a UserMessageSent against an optional Sails IDL. Returns
+    *  the existing raw shape unchanged; if a sails IDL is provided AND it
+    *  matches the payload, append a `sails: {service, event, data}` key.
+    *  Never mutates pre-existing field names — additive only. */
+   export function formatUserMessageSentMaybeDecoded(
+     event: UserMessageSent,
+     sails: LoadedSails | null,
+     programIdHex: string,
+   ): Record<string, unknown>;
 
-// File too large
-{"error": "Args file too large (max 10 MB).", "code": "ARGS_FILE_TOO_LARGE"}
+   /** Returns either a Gear pallet event match or a Sails event match.
+    *  Resolution order (back-compat): Gear vocab first, then Sails IDL.
+    *  `forcePallet` skips the IDL lookup entirely. Throws on ambiguous
+    *  bare Sails names with the alternatives listed. */
+   export type ResolvedSubscribeFilter =
+     | { kind: 'sails'; service: string; event: string }
+     | { kind: 'pallet'; event: GearEventName };
 
-// Stdin requested but TTY attached
-{"error": "--args-file '-' requires JSON piped on stdin (got an interactive terminal). Pipe the JSON: 'cat args.json | vara-wallet ...'", "code": "STDIN_IS_TTY"}
+   export function resolveSubscribeFilter(
+     name: string,
+     sails: LoadedSails | null,
+     forcePallet: boolean,
+   ): ResolvedSubscribeFilter;
+   ```
 
-// Dry-run output (call, function)
-{"kind": "function", "service": "Counter", "method": "Increment", "args": [...], "encodedPayload": "0x...", "value": "0", "gasLimit": null, "voucherId": null, "willSubmit": false}
+   `formatUserMessageSentMaybeDecoded` is the seam used by both `watch.ts` and `subscribe/messages.ts`. It calls `decodeSailsEvent` only when `programIdHex` matches `event.data.message.source.toHex()` — sails-js's own `.is()` doesn't check source, so we MUST pre-filter (Codex finding #2).
 
-// Dry-run output (call, query)
-{"kind": "query", "service": "Counter", "method": "Get", "args": [], "encodedPayload": "0x...", "willSubmit": false}
+10. **`src/commands/watch.ts`** — add `--idl <path>` option and `--pallet-event` flag. Auto-load via `loadSailsAuto` when programId is given (Codex finding #3 — opportunistic, falls back gracefully on `IDL_NOT_FOUND`). When sails loaded, route through `formatUserMessageSentMaybeDecoded`. Validate `--event <type>` via `resolveSubscribeFilter` so `Service/Event` form is accepted alongside Gear vocab.
 
-// Dry-run output (program upload)
-{"kind": "program-upload", "init": "New", "initPayload": "0x...", "value": "0", "gasLimit": null, "willSubmit": false}
+11. **`src/commands/subscribe/messages.ts`** — same treatment. `--idl`, `--pallet-event`, opportunistic auto-load. The `subscribe messages <programId>` command already implies program scoping, so auto-load is a free DX win.
+
+12. **`src/commands/call.ts`** — extend `executeFunction` after `await result.response()`:
+
+    ```ts
+    // Phase-correlated block-event scan (Codex finding #1):
+    // 1. Get the block + find OUR extrinsic index by matching txHash.
+    // 2. Fetch system.events() at this block.
+    // 3. Filter records where phase.isApplyExtrinsic && phase.asApplyExtrinsic.eq(ourIdx).
+    // 4. From those, keep `gear.UserMessageSent` events (typed via api.events.gear.UserMessageSent.is).
+    // 5. Filter source === programIdHex (defensive — phase scoping should already exclude).
+    // 6. Run each through decodeSailsEvent.
+    const events = await collectDecodedEvents(api, sails, result.blockHash, result.txHash, programIdHex);
+    output({
+      txHash: result.txHash, blockHash: result.blockHash, blockNumber,
+      messageId: result.msgId, voucherId: options.voucher ?? null,
+      result: decoded,
+      events,  // additive — always present, may be []
+    });
+    ```
+
+    `collectDecodedEvents` lives in `src/services/sails-events.ts` (it composes `decodeSailsEvent` with the block-walk logic — sized at ~30 lines, kept out of `call.ts` so the command stays thin).
+
+    Implementation sketch for `collectDecodedEvents`:
+    ```ts
+    export async function collectDecodedEvents(
+      api: GearApi, sails: LoadedSails,
+      blockHash: HexString, txHash: HexString, programIdHex: HexString,
+    ): Promise<DecodedSailsEvent[]> {
+      const block = await api.rpc.chain.getBlock(blockHash);
+      const extrinsicIdx = block.block.extrinsics.findIndex((x) => x.hash.toHex() === txHash);
+      if (extrinsicIdx < 0) return [];   // shouldn't happen — txHash came from this block
+      const apiAt = await api.at(blockHash);
+      const records = await apiAt.query.system.events();
+      const out: DecodedSailsEvent[] = [];
+      for (const record of records as unknown as Array<{ phase: { isApplyExtrinsic: boolean; asApplyExtrinsic: { eq: (n: number) => boolean } }; event: unknown }>) {
+        if (!record.phase.isApplyExtrinsic || !record.phase.asApplyExtrinsic.eq(extrinsicIdx)) continue;
+        if (!api.events.gear.UserMessageSent.is(record.event as never)) continue;
+        const ums = record.event as unknown as UserMessageSent;
+        if (ums.data.message.source.toHex() !== programIdHex) continue;
+        const decoded = decodeSailsEvent(sails, ums);
+        if (decoded) out.push(decoded);
+      }
+      return out;
+    }
+    ```
+
+    Backward-compat: `events` is a NEW key. No existing field changes. Per Codex finding #2, source filter stays even though phase scoping is more accurate — defense-in-depth costs nothing.
+
+## v1/v2 dispatch shape
+
+Mirrors `coerceArgs` / `coerceArgsV2` / `coerceArgsAuto`:
+- `coerceArgsAuto` picks once via `isSailsV2(sails)`, dispatches to one walker.
+- `decodeSailsResult` (existing) dispatches inside `walk()` via `isSailsV2`.
+- `decodeSailsEvent` does NOT dispatch on v1/v2 because both expose identical `events[E].is/decode` surface. The v1/v2 split is invoked transitively when the decoded value flows into `decodeEventData → decodeSailsResult → walkV1/walkV2`.
+- v2 `service.extends` traversal is v2-only (v1 has no `extends`); guarded by `isSailsV2`.
+
+One new module, zero new dispatch surface.
+
+## Output shape (Codex finding #6 — namespace, don't collide)
+
+`watch` and `subscribe messages` decoded output:
+```json
+{
+  "type": "message",
+  "event": "UserMessageSent",        // unchanged — pallet name
+  "messageId": "0x…",                 // unchanged
+  "source": "0x…",                    // unchanged
+  "destination": "0x…",               // unchanged
+  "payload": "0x…",                   // unchanged — raw hex
+  "payloadAscii": "…",                // unchanged
+  "value": "0",                       // unchanged
+  "details": null,                    // unchanged
+  "sails": {                          // NEW — only present on successful decode
+    "service": "Chat",
+    "event": "MessagePosted",
+    "data": { /* recursively decoded JSON */ }
+  },
+  "timestamp": 1234567890
+}
 ```
 
-## Test count expectation
+When IDL absent or no decode match: shape is exactly as today — no `sails` key. Consumers that ignore unknown keys remain compatible. Persisted SQLite event rows store the full JSON object as `data`, so the schema stays the same.
 
-Project sits at 397 tests on main (per task brief — the actual current count may differ, will measure pre-change).
-Adding ~15-18 new tests across three new test files. Final ~412-415 green.
+## Verification
 
-## CLI ergonomics
+- `npx tsc --noEmit` clean
+- `npm test` ≥ 463 (baseline 446 + 17 new)
+- No lint script (verified `package.json`)
 
-```bash
-# inline (existing — unchanged)
-vara-wallet call $PID Counter/Increment --args '[1,2,3]'
+## Test count delta
 
-# file
-vara-wallet call $PID Counter/Increment --args-file ./args.json
+- 5 in `sails-events.test.ts` (list, resolve x3, extends, decode-no-match)
+- 3 in `sails-events-decode.test.ts` (v1 happy, v2 happy, v2 extended-service event)
+- 4 in `call-events.test.ts` (no-match, single-extrinsic match, cross-extrinsic exclusion, cross-program exclusion)
+- 3 in `watch-decoded.test.ts` (decoded match, no-IDL fallback, source-mismatch no-decode)
+- 2 in `subscribe-filter-resolution.test.ts` (Gear-first precedence + ambiguous Sails) — NB: tightened from 5 to 2; the other 3 are subsumed by sails-events.test.ts
 
-# stdin
-echo '[1,2,3]' | vara-wallet call $PID Counter/Increment --args-file -
-
-# dry-run preview (call function)
-vara-wallet call $PID Counter/Increment --args-file ./args.json --idl ./idl --dry-run
-
-# dry-run preview (program upload)
-vara-wallet program upload ./prog.wasm --idl ./idl --init New --args-file ./ctor.json --dry-run
-
-# encode
-vara-wallet encode T --args-file ./val.json --idl ./idl --method Svc/Mtd
-```
-
-## Backward compatibility
-
-- Existing `--args '[]'` callers: unchanged — helper defaults to `[]` when neither flag set.
-- Existing `encode <type> <value>` positional: unchanged when `--args-file` not used.
-- Existing `program upload --args` callers: unchanged.
-- No new required flags. No changes to JSON output shape on success paths.
-- `--dry-run` is opt-in; default behavior preserved.
+Total: **+17 tests**, target final = 463.
 
 ## Out of scope
 
-- YAML/TOML args files. JSON only (P4: would duplicate functionality, add deps).
-- `--args-file` for `encode decode` (no args concept on decode).
-- Streaming validation (file is read whole — args are small).
-- README documentation updates (defer to TODOS — small follow-up).
+- Issues #20, #33, #35 — separate PRs per parent plan critical sequencing.
+- SS58/ActorId in event output (#31 closed).
+- `MessageWaken` vs `MessageWoken` typo in `VALID_GEAR_EVENTS` — pre-existing, separate fix.
+- Auto-load IDL for `watch` / `subscribe messages` will silently fall back to raw output on resolution failure. No new error code added; verbose logs the failure. (If a user explicitly passes `--idl bad-path.idl`, that error still propagates as `IDL_FILE_ERROR`.)
 
-## Risks
+## Commit / branch / ship
 
-- **Commander handling of optional positional `[value]` in `encode`:** switching from `<value>` to `[value]` might break edge cases. Mitigated by the explicit "missing input" check that fires when neither positional nor `--args-file` is provided.
-- **Dropping `'[]'` default on `call --args` for mutual-exclusion detection:** must ensure no other code path expects the default. Verified: only the action handler reads it.
-- **Stdin reads in test environment:** tests must mock `fs.readFileSync(0, ...)` and `process.stdin.isTTY` carefully — Jest's stdin is non-TTY, raw read could hang in CI.
-- **Dry-run output stability:** keys must be in fixed order in the object literal so JSON.stringify produces deterministic output for diff-friendly agent workflows. (V8 preserves insertion order for string keys — relied on widely.)
-- **`program.ts` dry-run reorder:** must move account resolution AFTER the dry-run check in both `upload` and `deploy`. Verify via test that `--dry-run` works without an account configured.
+- Branch: `feat/sails-event-decoding`
+- Single commit: `feat: IDL-aware Sails event decoding and recursive value decode (closes #36, #37, #32)`
+- No `--no-verify`, no `--amend`.
+- After commit: `/review` skill (review-pr) → apply blocking fixes → `/ship`.
 
-## Sequencing
+## Decision audit (from /autoplan)
 
-1. Write helper + helper tests.
-2. Wire `call.ts` (with dry-run + estimate-conflict).
-3. Wire `encode.ts`.
-4. Wire `program.ts` (`resolveInitPayload` + both subcommands' dry-run branches).
-5. Run `npx tsc --noEmit` → fix.
-6. Run `npm test` → fix.
-7. Commit on `feat/args-file-dry-run` (no `--no-verify`, no `--amend`).
-8. Invoke `/review` (skill name: `review`). Apply fixes.
-9. Invoke `/ship` (skill name: `ship`). Branch push + PR creation handled by `/ship`.
+| # | Phase | Decision | Principle | Rationale |
+|---|-------|----------|-----------|-----------|
+| 1 | CEO | Skip duplicate `decode-result.ts`; reuse `decode-sails-result.ts` | P4 (DRY) | Forking the walker would be 100% duplicated logic |
+| 2 | CEO | Run consolidated codex review (1 invocation) instead of 4 phase-by-phase | P3 (Pragmatic) | Spawned subagent, time budget; signal preserved |
+| 3 | CEO | Skip Phase 2 (Design) | Mechanical | No UI scope detected — CLI tool |
+| 4 | Eng | Phase-correlated event scan vs whole-block scan | P1 (Completeness) | Codex caught the cross-extrinsic bleed bug; phase scoping is the correct fix |
+| 5 | Eng | Auto-load IDL for watch/subscribe (opportunistic) | P1 + P2 (Completeness, blast radius) | `loadSailsAuto` already exists; this is in-blast-radius and < 1 day CC |
+| 6 | DX | Output shape: namespace under `sails:` | P5 (Explicit over clever) | `event` reuse would be a breaking schema change; `sails:` is unambiguous |
+| 7 | DX | Gear-first precedence on `--type` / `--event` | P3 + back-compat | Existing users have Gear vocab muscle memory; Sails users learn `Service/Event` form |
+| 8 | DX | Hard-fail (not soft-warn) on ambiguous bare Sails names | P5 | Filter commands cannot be nondeterministic |
+| 9 | Eng | Defer `MessageWaken→MessageWoken` typo fix | P2 (lake boundary) | Out of blast radius for this PR; back-compat audit needed |
+| 10 | Eng | Use `api.events.gear.UserMessageSent.is()` for typed event check, not blind cast | P5 | Codex finding #1 secondary fix; canonical polkadot pattern |
+| 11 | Eng | v2 service `extends` traversal | P1 | Codex finding #7; forgotten edge case caught |
 
-## Decision Audit Trail
+User-challenge gate: none — no model recommended changes that contradict the user's stated direction (IDL-aware decoding remains the goal; all 11 decisions refine HOW, not WHAT).
 
-| # | Phase | Decision | Class | Principle | Rationale | Rejected |
-|---|-------|----------|-------|-----------|-----------|----------|
-| 1 | CEO | Reject "auto-detect path" magic in `--args` | mech | P5 | Explicit > clever; agents prefer predictability | magic detection |
-| 2 | CEO | Reject YAML/TOML support | mech | P4 | Adds dep, JSON sufficient | yaml lib |
-| 3 | CEO | EXPAND to `program upload`/`deploy` | mech | P1+P2 | Same bug, same fix, in blast radius, <1d CC | original tight scope |
-| 4 | CEO | EXPAND `--dry-run` to program upload/deploy | mech | P1+P2 | Agents pay gas to deploy — preview is high-value | function-only dry-run |
-| 5 | Eng | Add `--estimate` + `--dry-run` mutual exclusion | mech | P5 | Two preview modes, picking one is unambiguous | silent override |
-| 6 | Eng | Add isTTY check for `--args-file -` | mech | P3 | Prevents agent hangs in interactive shell — common AI pitfall | hang and let user ctrl-C |
-| 7 | Eng | Add 10 MB file-size cap | mech | P3 | Defensive, args files are tiny in practice | unbounded read |
-| 8 | DX | Help text mentions `-` for stdin in `--args-file` description | mech | P5 | Discoverability via `--help` is the primary onboarding | terse description |
-| 9 | DX | Mutual-exclusion error includes guidance on which flag does what | mech | P3 | Reduces second-error follow-up | bare error |
-| 10 | DX | Dry-run on call functions does NOT require an account | mech | P1+P3 | Agents on read-only machines can validate args | require account |
-| 11 | DX | Include `value`/`gasLimit`/`voucherId` in dry-run output | taste | P1 | Round-trip diagnostics for agent debugging; cheap | minimal output |
-| 12 | Eng | Defer README updates to TODOS | mech | P3 | Out of test gate; small follow-up PR | bundle docs |
-
-## Cross-phase themes
-
-- **Scope underspecified for `program.ts`** — flagged in CEO + Eng. Resolution: expand.
-- **Stdin TTY edge case** — flagged in Eng + DX. Resolution: isTTY check.
-- **Mode conflicts (estimate vs dry-run)** — flagged in Eng + DX. Resolution: explicit error.
-
-## Approval
-
-AUTO-APPROVED in spawned-session mode. Proceed to implementation.
+Premise gate: premises validated by codex (v1+v2 share is/decode surface, gear/UserMessageSent section/method names correct, decode-sails-result reuse correct).

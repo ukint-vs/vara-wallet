@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getApi } from '../services/api';
 import { resolveAccount, resolveAddress, AccountOptions } from '../services/account';
 import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
+import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
 import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson } from '../utils';
@@ -288,6 +289,23 @@ async function executeFunction(
 
   const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 
+  // Phase-correlated block-event scan (#37). Walks system.events() at the
+  // inclusion block, restricting to records emitted by OUR extrinsic
+  // (via phase index match) and our programId, then runs each through
+  // decodeSailsEvent. Always-on, additive — `events` is a new key, never
+  // replaces or renames anything in the existing reply shape.
+  // sails-js `IMethodReturnType` declares blockHash/txHash as `HexString`
+  // (= `0x${string}`) and the runtime (`transaction-builder.js`) returns them
+  // already converted via `.toHex()`. No cast needed; pass straight through.
+  const programIdHex = addressToHex(programId);
+  const events = await collectDecodedEvents(
+    api,
+    sails,
+    result.blockHash,
+    result.txHash,
+    programIdHex,
+  );
+
   output({
     txHash: result.txHash,
     blockHash: result.blockHash,
@@ -295,5 +313,6 @@ async function executeFunction(
     messageId: result.msgId,
     voucherId: options.voucher ?? null,
     result: decoded,
+    events,
   });
 }
