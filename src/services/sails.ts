@@ -612,6 +612,151 @@ function renderEventType(sails: LoadedSails, event: EventLike): string {
   return describeType(sails, event.typeDef);
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Cross-service match hints (issue #33)
+//
+// When `call <pid> Service/Method` 404s on either name, we surface a
+// "Did you mean: …?" hint. Two sources:
+//   1. Exact case-insensitive match in a different service (very common
+//      for VFT IDLs where `Vft/Name` is actually `VftMetadata/Name`).
+//   2. Single Levenshtein-≤2 fuzzy match within any service.
+//
+// Zero-false-positive bar: ties at the minimum distance → no suggestion.
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Levenshtein edit distance with an early-exit cap. Returns `cap + 1`
+ * once the running minimum row value exceeds `cap`, so callers can
+ * cheaply reject "too far" candidates without paying the full O(n*m).
+ */
+function levenshtein(a: string, b: string, cap: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  // Standard 1D-rolling-row DP.
+  const prev = new Array(b.length + 1);
+  const curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,       // insert
+        prev[j] + 1,           // delete
+        prev[j - 1] + cost,    // substitute
+      );
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > cap) return cap + 1;
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+  return prev[b.length];
+}
+
+/** All method names (functions + queries) for a given service. */
+function methodNamesIn(sails: LoadedSails, serviceName: string): string[] {
+  const svc = (sails.services as Record<string, ServiceLike>)[serviceName];
+  if (!svc) return [];
+  return [...Object.keys(svc.functions), ...Object.keys(svc.queries)];
+}
+
+/**
+ * Find a single best suggestion across all (Service, Method) pairs for
+ * a missing `serviceName/methodName`. Returns `"Service/Method"` or null.
+ *
+ * Preference order:
+ *   1. Exact case-insensitive match for `methodName` in any service
+ *      (including the same service, in case method-name casing was off).
+ *      If exactly one such match exists → suggest it.
+ *   2. Otherwise, Levenshtein-≤2 fuzzy match across all (svc, method)
+ *      pairs. Suggest only when there is exactly one candidate at the
+ *      minimum distance — ties produce no suggestion.
+ */
+export function suggestMethod(
+  sails: LoadedSails,
+  serviceName: string,
+  methodName: string,
+): string | null {
+  const allServices = sails.services as Record<string, ServiceLike>;
+  const lowerMethod = methodName.toLowerCase();
+
+  // 1. Exact case-insensitive match anywhere.
+  const exactHits: string[] = [];
+  for (const [svcName, svc] of Object.entries(allServices)) {
+    for (const m of [...Object.keys(svc.functions), ...Object.keys(svc.queries)]) {
+      if (m.toLowerCase() === lowerMethod && !(svcName === serviceName && m === methodName)) {
+        exactHits.push(`${svcName}/${m}`);
+      }
+    }
+  }
+  if (exactHits.length === 1) return exactHits[0];
+  // Multiple exact matches across services → ambiguous, no hint.
+  if (exactHits.length > 1) return null;
+
+  // 2. Fuzzy match within all services.
+  const cap = 2;
+  let bestDist = cap + 1;
+  let bestMatches: string[] = [];
+  for (const [svcName, svc] of Object.entries(allServices)) {
+    for (const m of [...Object.keys(svc.functions), ...Object.keys(svc.queries)]) {
+      // Skip identity (shouldn't happen — caller already checked the
+      // method is missing — but defensive).
+      if (svcName === serviceName && m === methodName) continue;
+      const d = levenshtein(methodName, m, cap);
+      if (d > cap) continue;
+      if (d < bestDist) {
+        bestDist = d;
+        bestMatches = [`${svcName}/${m}`];
+      } else if (d === bestDist) {
+        bestMatches.push(`${svcName}/${m}`);
+      }
+    }
+  }
+  if (bestMatches.length === 1) return bestMatches[0];
+  return null;
+}
+
+/**
+ * Find a single best service-name suggestion for a missing service.
+ * Returns the suggested service name or null.
+ *
+ * Same rules as `suggestMethod`:
+ *   1. Exact case-insensitive hit → suggest it.
+ *   2. Levenshtein-≤2 with exactly one minimum-distance candidate.
+ */
+export function suggestService(sails: LoadedSails, serviceName: string): string | null {
+  const services = Object.keys(sails.services as Record<string, ServiceLike>);
+  const lower = serviceName.toLowerCase();
+
+  // 1. Case-insensitive exact match.
+  const exact = services.filter((s) => s.toLowerCase() === lower);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+
+  // 2. Fuzzy match.
+  const cap = 2;
+  let bestDist = cap + 1;
+  let bestMatches: string[] = [];
+  for (const s of services) {
+    if (s === serviceName) continue;
+    const d = levenshtein(serviceName, s, cap);
+    if (d > cap) continue;
+    if (d < bestDist) {
+      bestDist = d;
+      bestMatches = [s];
+    } else if (d === bestDist) {
+      bestMatches.push(s);
+    }
+  }
+  if (bestMatches.length === 1) return bestMatches[0];
+  return null;
+}
+
+// Internal export only used by the test suite — keeps the helper testable
+// without inflating the public API surface.
+export const _internal = { levenshtein, methodNamesIn };
+
 /**
  * Build a structured description of all services in a Sails program.
  * Shape is identical across v1 and v2 for consumers like the discover command.
