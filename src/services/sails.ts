@@ -654,13 +654,6 @@ function levenshtein(a: string, b: string, cap: number): number {
   return prev[b.length];
 }
 
-/** All method names (functions + queries) for a given service. */
-function methodNamesIn(sails: LoadedSails, serviceName: string): string[] {
-  const svc = (sails.services as Record<string, ServiceLike>)[serviceName];
-  if (!svc) return [];
-  return [...Object.keys(svc.functions), ...Object.keys(svc.queries)];
-}
-
 /**
  * Find a single best suggestion across all (Service, Method) pairs for
  * a missing `serviceName/methodName`. Returns `"Service/Method"` or null.
@@ -752,10 +745,6 @@ export function suggestService(sails: LoadedSails, serviceName: string): string 
   if (bestMatches.length === 1) return bestMatches[0];
   return null;
 }
-
-// Internal export only used by the test suite — keeps the helper testable
-// without inflating the public API surface.
-export const _internal = { levenshtein, methodNamesIn };
 
 /**
  * Build a structured description of all services in a Sails program.
