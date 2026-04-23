@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { KeyringPair$Json } from '@polkadot/keyring/types';
 import { CliError, verbose } from '../utils';
+import { writeUserFile } from '../utils/secure-file';
 import { getConfigDir } from './config';
 
 function getWalletsDir(): string {
@@ -18,17 +19,12 @@ function walletPath(name: string): string {
 }
 
 export function saveWallet(name: string, json: KeyringPair$Json): string {
-  const walletsDir = getWalletsDir();
-  if (!fs.existsSync(walletsDir)) {
-    fs.mkdirSync(walletsDir, { recursive: true, mode: 0o700 });
-  }
-
   const filePath = walletPath(name);
   if (fs.existsSync(filePath)) {
     throw new CliError(`Wallet "${name}" already exists at ${filePath}`, 'WALLET_EXISTS');
   }
 
-  fs.writeFileSync(filePath, JSON.stringify(json, null, 2) + '\n', { mode: 0o600 });
+  writeUserFile(filePath, JSON.stringify(json, null, 2) + '\n');
   return filePath;
 }
 
@@ -109,11 +105,7 @@ export function ensurePassphraseFile(): string {
 
   const passphrase = crypto.randomBytes(32).toString('hex');
   const filePath = getPassphraseFilePath();
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  fs.writeFileSync(filePath, passphrase + '\n', { mode: 0o600 });
+  writeUserFile(filePath, passphrase + '\n');
   verbose('Generated passphrase file at ' + filePath);
   return passphrase;
 }

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0] - 2026-04-24
+
+### Added
+- Auto-resolve IDL from on-chain WASM for v2 programs (sails ≥ 1.0.0-beta.1): `vara-wallet call` and `vara-wallet discover` now work on any such program without `--idl`. IDL is extracted from the `sails:idl` custom section of the program's original WASM via `gearProgram.originalCodeStorage(codeId)`.
+- Local IDL cache at `~/.vara-wallet/idl-cache/<codeId>.cache.json`. First call against a program fetches the WASM and populates the cache; subsequent calls are free.
+- `vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)` command for seeding the cache with out-of-band IDLs (v1 programs, or any case where the on-chain WASM doesn't carry the section).
+- IDL cache entries are validator-gated on read for `vft`/`dex` commands: if a cached IDL fails the caller's validator (e.g. a bad `idl import` against a VFT program), the entry is evicted and the bundled fallback is tried. Preserves the pre-cache safety contract.
+- Strict validation on `--code-id` input (32-byte hex, with or without `0x` prefix) — rejects path-traversal attempts and malformed hex before they reach the cache layer.
+
+### Removed / Breaking
+- **`metaStorageUrl` config key and `VARA_META_STORAGE` env var are gone.** `vara-wallet config set metaStorageUrl <url>` now errors with `INVALID_CONFIG_KEY`. Empirically the meta-storage endpoint returned 0/13 usable IDLs during 2026-04-23 testing; the new WASM-custom-section path replaces it for v2, and `idl import` replaces it for v1. Stale entries in existing `~/.vara-wallet/config.json` files are silently ignored (no migration required).
+
+### Internal
+- Extracted `writeUserFile` / `writeUserFileAtomic` helpers to `src/utils/secure-file.ts`; `config.ts`, `wallet-store.ts`, and the new `idl-cache.ts` share the "mode 0700 parent + mode 0600 file" idiom.
+
 ## [0.12.0] - 2026-04-23
 
 ### Added

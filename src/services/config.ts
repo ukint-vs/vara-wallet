@@ -1,10 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeUserFile } from '../utils/secure-file';
 
 export interface VaraWalletConfig {
   wsEndpoint?: string;
   defaultAccount?: string;
-  metaStorageUrl?: string;
   dexFactoryAddress?: string;
   faucetUrl?: string;
 }
@@ -28,13 +28,7 @@ export function readConfig(): VaraWalletConfig {
 }
 
 export function writeConfig(config: VaraWalletConfig): void {
-  const configDir = getConfigDir();
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  }
-
-  const configPath = getConfigPath();
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
+  writeUserFile(getConfigPath(), JSON.stringify(config, null, 2) + '\n');
 }
 
 export function updateConfig(updates: Partial<VaraWalletConfig>): void {

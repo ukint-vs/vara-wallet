@@ -76,7 +76,6 @@ npm link
 | `VARA_LIGHT` | Set to `1` to use embedded light client (smoldot) | — |
 | `VARA_PASSPHRASE` | Wallet passphrase (CI/Docker fallback) | — |
 | `VARA_WALLET_DIR` | Config directory | `~/.vara-wallet` |
-| `VARA_META_STORAGE` | Meta-storage URL for IDL fetching | — |
 | `VARA_DEX_FACTORY` | DEX factory program address | — |
 | `VARA_FAUCET_URL` | Faucet API URL | `https://faucet.gear-tech.io` |
 
@@ -210,12 +209,28 @@ High-level method invocation on Sails programs. Auto-detects queries vs function
 vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate]
 ```
 
+For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the program's on-chain WASM — `--idl` is only needed for v1 programs or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch.
+
 ### `discover` (Sails)
 
 Introspect a Sails program's services, functions, queries, and events.
 
 ```bash
 vara-wallet discover <programId> [--idl <path>]
+```
+
+Same auto-resolution as `call`.
+
+### `idl` (Sails IDL cache)
+
+Seed the local IDL cache with an out-of-band IDL. Needed for v1 programs (no embedded IDL in WASM) and for one-off imports. Once imported, `call`/`discover`/`vft`/`dex` find the IDL automatically for that program's `codeId`.
+
+```bash
+# Import an IDL for a specific program (resolves codeId via RPC)
+vara-wallet idl import ./my-program.idl --program <programId>
+
+# Import for a known codeId — fully offline
+vara-wallet idl import ./my-program.idl --code-id 0x<hex>
 ```
 
 ### `vft` (Fungible Tokens)
@@ -350,7 +365,7 @@ vara-wallet config set <key> <value>
 vara-wallet config set network testnet   # shorthand for wsEndpoint
 ```
 
-Valid keys: `wsEndpoint`, `defaultAccount`, `metaStorageUrl`, `dexFactoryAddress`, `faucetUrl`. The `network` alias maps `mainnet`/`testnet`/`local` to the corresponding `wsEndpoint` URL.
+Valid keys: `wsEndpoint`, `defaultAccount`, `dexFactoryAddress`, `faucetUrl`. The `network` alias maps `mainnet`/`testnet`/`local` to the corresponding `wsEndpoint` URL.
 
 **Endpoint resolution order:** `--ws` flag > `--network` flag > `VARA_WS` env > `config.wsEndpoint` > default (`wss://rpc.vara.network`).
 
@@ -377,12 +392,14 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 
 ```
 ~/.vara-wallet/
-  config.json          # wsEndpoint, defaultAccount, metaStorageUrl, dexFactoryAddress, faucetUrl
+  config.json          # wsEndpoint, defaultAccount, dexFactoryAddress, faucetUrl
   .passphrase          # Auto-generated or human-provided (0600)
   events.db            # SQLite event store (subscribe/inbox/events)
   wallets/
     default.json       # Encrypted keystore (0600)
     *.json
+  idl-cache/
+    <codeId>.cache.json  # Auto-populated from on-chain WASM or `idl import`
 ```
 
 ## Error Codes
