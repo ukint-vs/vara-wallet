@@ -8,7 +8,7 @@ import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex } from '../utils';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult } from '../utils';
 import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
 // ---------------------------------------------------------------------------
@@ -420,6 +420,7 @@ async function executeDexTx(
     throw new CliError(`Program execution failed: ${msg}`, 'PROGRAM_ERROR');
   }
   const blockNumber = await resolveBlockNumber(api, result.blockHash);
+  const decoded = decodeSailsResult(sails, func.returnTypeDef, response, serviceName);
 
   output({
     txHash: result.txHash,
@@ -427,7 +428,7 @@ async function executeDexTx(
     blockNumber,
     messageId: result.msgId,
     voucherId: voucher ?? null,
-    result: response,
+    result: decoded,
     ...extraOutput,
   });
 }

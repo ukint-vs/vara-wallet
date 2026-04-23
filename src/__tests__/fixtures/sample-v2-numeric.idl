@@ -1,0 +1,66 @@
+!@sails: 1.0.0-beta.1
+
+// IMPORTANT: the @0x... interface_id after each service name is
+// content-derived by the sails-js v2 parser from the full service
+// signature (name + methods + events + types). If you change any
+// signature below, the parser will reject the file with a
+// "Validation error: service `X` computed interface_id 0x... is
+// not equal to 0x... in IDL" message — copy the computed hex from
+// that error into the corresponding `@0x...` suffix.
+
+/// Numeric-heavy service exercising the decode-sails-result walker for
+/// u256 / u128 / u64 inside Option / Vec / struct / tuple / enum / user-
+/// defined types. Mirrors the shapes in issue #32.
+
+service Nums@0x902d35c911c459e3 {
+    functions {
+        /// Option<u256> — the primary bug.
+        @query
+        Balance() -> Option<u256>;
+        /// Vec<u256> — every element must decode.
+        @query
+        Balances() -> [u256];
+        /// Tuple with u256.
+        @query
+        Pair() -> (u256, u32);
+        /// Struct with u256 field.
+        @query
+        Ledger() -> Amount;
+        /// Enum with u256 payload.
+        @query
+        Status() -> TokenState;
+        /// Result<u256, String>.
+        @query
+        Try() -> Result<u256, String>;
+        /// Deeply nested: Option<Vec<AccountAmount>>.
+        @query
+        Allowances() -> Option<[AccountAmount]>;
+    }
+    types {
+        struct Amount {
+            value: u256,
+            expires: u32,
+        }
+        struct AccountAmount {
+            account: u256,
+            amount: u256,
+        }
+        enum TokenState {
+            Idle,
+            Active(u256),
+            Locked {
+                by: u256,
+                until: u64,
+            },
+        }
+    }
+}
+
+program NumsProgram {
+    constructors {
+        Default();
+    }
+    services {
+        Nums@0x902d35c911c459e3,
+    }
+}
