@@ -115,6 +115,40 @@ describe('idl import', () => {
     ).rejects.toMatchObject({ code: 'IDL_FILE_NOT_FOUND' });
   });
 
+  it('rejects --code-id containing path traversal sequences', async () => {
+    const idlFile = writeIdlFile(IDL_V1);
+    const program = createProgram();
+    await expect(
+      program.parseAsync(['node', 'vara-wallet', 'idl', 'import', idlFile, '--code-id', '../../etc/passwd']),
+    ).rejects.toMatchObject({ code: 'INVALID_CODE_ID' });
+  });
+
+  it('rejects --code-id that is not 32 bytes of hex', async () => {
+    const idlFile = writeIdlFile(IDL_V1);
+    const program = createProgram();
+    // Short hex (16 bytes, not 32)
+    await expect(
+      program.parseAsync(['node', 'vara-wallet', 'idl', 'import', idlFile, '--code-id', '0xdeadbeef']),
+    ).rejects.toMatchObject({ code: 'INVALID_CODE_ID' });
+    // Non-hex chars
+    await expect(
+      program.parseAsync(['node', 'vara-wallet', 'idl', 'import', idlFile, '--code-id', '0x' + 'z'.repeat(64)]),
+    ).rejects.toMatchObject({ code: 'INVALID_CODE_ID' });
+  });
+
+  it('accepts --code-id with and without 0x prefix (64 hex chars)', async () => {
+    const idlFile = writeIdlFile(IDL_V1);
+    const prefixed = '0x' + '1'.repeat(64);
+    const program1 = createProgram();
+    await program1.parseAsync(['node', 'vara-wallet', 'idl', 'import', idlFile, '--code-id', prefixed]);
+    expect(readCachedIdl(prefixed)).not.toBeNull();
+
+    const bare = '2'.repeat(64);
+    const program2 = createProgram();
+    await program2.parseAsync(['node', 'vara-wallet', 'idl', 'import', idlFile, '--code-id', bare]);
+    expect(readCachedIdl(bare)).not.toBeNull();
+  });
+
   it('tags v2 IDLs with version="v2" and v1 IDLs with version="unknown"', async () => {
     const idlV2 = writeIdlFile(IDL_V2);
     const program1 = createProgram();
