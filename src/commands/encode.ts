@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
-import { loadSailsAuto, parseIdlFileAuto, isSailsV2, type LoadedSails } from '../services/sails';
+import { loadSailsAuto, parseIdlFileAuto, isSailsV2, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
 import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
@@ -72,12 +72,16 @@ export function registerEncodeCommand(program: Command): void {
         const [serviceName, methodName] = parts;
         const service = sails.services[serviceName];
         if (!service) {
-          throw new CliError(`Service "${serviceName}" not found`, 'SERVICE_NOT_FOUND');
+          const hint = suggestService(sails, serviceName);
+          const prefix = hint ? `Did you mean: ${hint}/${methodName}? ` : '';
+          throw new CliError(`${prefix}Service "${serviceName}" not found`, 'SERVICE_NOT_FOUND');
         }
 
         const func = service.functions[methodName] || service.queries[methodName];
         if (!func) {
-          throw new CliError(`Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
+          const hint = suggestMethod(sails, serviceName, methodName);
+          const prefix = hint ? `Did you mean: ${hint}? ` : '';
+          throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
         const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
@@ -149,12 +153,16 @@ export function registerEncodeCommand(program: Command): void {
         const [serviceName, methodName] = parts;
         const service = sails.services[serviceName];
         if (!service) {
-          throw new CliError(`Service "${serviceName}" not found`, 'SERVICE_NOT_FOUND');
+          const hint = suggestService(sails, serviceName);
+          const prefix = hint ? `Did you mean: ${hint}/${methodName}? ` : '';
+          throw new CliError(`${prefix}Service "${serviceName}" not found`, 'SERVICE_NOT_FOUND');
         }
 
         const func = service.functions[methodName] || service.queries[methodName];
         if (!func) {
-          throw new CliError(`Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
+          const hint = suggestMethod(sails, serviceName, methodName);
+          const prefix = hint ? `Did you mean: ${hint}? ` : '';
+          throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
         let decoded: unknown;
