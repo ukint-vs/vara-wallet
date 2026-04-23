@@ -675,9 +675,12 @@ export function suggestMethod(
   const lowerMethod = methodName.toLowerCase();
 
   // 1. Exact case-insensitive match anywhere.
+  // Dedupe per service: a name appearing in both functions and queries
+  // must count as a single candidate so the `length === 1` check holds.
   const exactHits: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
-    for (const m of [...Object.keys(svc.functions), ...Object.keys(svc.queries)]) {
+    const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
+    for (const m of methodNames) {
       if (m.toLowerCase() === lowerMethod && !(svcName === serviceName && m === methodName)) {
         exactHits.push(`${svcName}/${m}`);
       }
@@ -692,7 +695,8 @@ export function suggestMethod(
   let bestDist = cap + 1;
   let bestMatches: string[] = [];
   for (const [svcName, svc] of Object.entries(allServices)) {
-    for (const m of [...Object.keys(svc.functions), ...Object.keys(svc.queries)]) {
+    const methodNames = new Set([...Object.keys(svc.functions), ...Object.keys(svc.queries)]);
+    for (const m of methodNames) {
       // Skip identity (shouldn't happen — caller already checked the
       // method is missing — but defensive).
       if (svcName === serviceName && m === methodName) continue;

@@ -38,6 +38,30 @@ service Apya {
 };
 `;
 
+// Dedup fixture: a synthetic Sails-shaped object where one service has
+// the same method name (`Ping`) declared in both `functions` and
+// `queries`. Per-service deduping must collapse this to a single
+// candidate, otherwise the `length === 1` check spuriously fails and the
+// hint is suppressed. See PR #45 review (gemini-code-assist).
+//
+// We construct this directly rather than via the IDL parser because the
+// parser may or may not allow same-name function/query pairs depending
+// on grammar version, but the Sails runtime data model exposes them as
+// independent `Record<string, …>` maps either way — which is what the
+// suggestion code consumes.
+function makeDupSails() {
+  const fn = { args: [], returnTypeDef: null, docs: undefined };
+  const services = {
+    Main: { functions: { DoStuff: fn }, queries: {}, events: {} },
+    Other: {
+      functions: { Ping: fn },
+      queries: { Ping: fn },
+      events: {},
+    },
+  };
+  return { services } as unknown as Parameters<typeof suggestMethod>[0];
+}
+
 describe('suggestMethod / suggestService', () => {
   let parser: SailsIdlParser;
   let vft: Sails;
@@ -90,6 +114,22 @@ describe('suggestMethod / suggestService', () => {
     it('Apxa/Fox → no suggestion (Apxa/Foo and Beta/Foo both distance 1)', () => {
       // `Fox` is distance 1 from both `Apxa/Foo` and `Beta/Foo`.
       expect(suggestMethod(tie, 'Apxa', 'Fox')).toBeNull();
+    });
+  });
+
+  describe('suggestMethod — per-service dedup of function/query collisions', () => {
+    // Regression for PR #45 review: when a method name exists in both
+    // `functions` and `queries` of the same service, the suggestion code
+    // must count it once. Otherwise the spurious duplicate trips the
+    // `length === 1` tie-rejection and silently drops a valid hint.
+    const dup = makeDupSails();
+
+    it('exact case-insensitive: Main/ping → Other/Ping (not suppressed by dup)', () => {
+      expect(suggestMethod(dup, 'Main', 'ping')).toBe('Other/Ping');
+    });
+
+    it('fuzzy: Main/Pong → Other/Ping (not suppressed by dup)', () => {
+      expect(suggestMethod(dup, 'Main', 'Pong')).toBe('Other/Ping');
     });
   });
 
