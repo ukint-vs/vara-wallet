@@ -24,6 +24,9 @@ vara-wallet call <programId> Service/Method --args '["arg1", "arg2"]'
 
 # Pass hex strings for binary args — auto-converted to byte arrays
 vara-wallet call <programId> Service/Upload --args '["0xdeadbeef"]'
+
+# Pass SS58 or hex addresses for ActorId args — SS58 auto-normalized to hex
+vara-wallet call <programId> Vft/BalanceOf --args '["5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"]'
 ```
 
 ## Installation
