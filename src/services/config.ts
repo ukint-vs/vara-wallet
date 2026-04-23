@@ -5,7 +5,6 @@ import { writeUserFile } from '../utils/secure-file';
 export interface VaraWalletConfig {
   wsEndpoint?: string;
   defaultAccount?: string;
-  metaStorageUrl?: string;
   dexFactoryAddress?: string;
   faucetUrl?: string;
 }

@@ -5,7 +5,6 @@ import { output, CliError } from '../utils';
 const VALID_KEYS: Array<keyof VaraWalletConfig> = [
   'wsEndpoint',
   'defaultAccount',
-  'metaStorageUrl',
   'dexFactoryAddress',
   'faucetUrl',
 ];

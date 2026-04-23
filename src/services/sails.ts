@@ -4,8 +4,9 @@ import { SailsIdlParser as V1Parser } from 'sails-js-parser';
 import { SailsIdlParser as V2Parser } from 'sails-js/parser';
 import * as fs from 'fs';
 import { CliError, errorMessage, verbose, addressToHex } from '../utils';
-import { readConfig } from './config';
 import { BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
+import { readCachedIdl, writeCachedIdl, evictCachedIdl } from './idl-cache';
+import { extractSailsIdl } from './wasm-section';
 
 export type LoadedSails = Sails | SailsProgram;
 /**
@@ -71,6 +72,17 @@ export function _resetParserCache(): void {
   v1ParserPromise = null;
   v2ParserPromise = null;
 }
+
+/**
+ * Test-only re-export of the private `resolveIdl` so unit tests can exercise
+ * every branch of the cascade with mocked `api` + real cache dir. Not part of
+ * the public surface — product callers should use `loadSailsV1/V2/Auto`.
+ */
+export const _resolveIdlForTests = (
+  api: GearApi,
+  options: SailsSetupOptions,
+  parser: V1Parser | null,
+): Promise<string> => resolveIdl(api, options, parser);
 
 /**
  * Detect IDL version from the source text.
@@ -192,12 +204,39 @@ export async function loadSailsAuto(
  */
 export const loadSails = loadSailsV1;
 
+/** Guard against a malicious or corrupt RPC response serving multi-MB
+ *  bytes as a "WASM". Typical sails programs are 50–500KB; 10MB is
+ *  orders-of-magnitude generous. */
+const MAX_WASM_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Resolve an IDL string for the given program, trying sources in order.
+ *
+ * ```
+ *   (1) --idl <path>  →  fs read, never falls through
+ *   (hoist) codeId = api.program.codeId(programId)
+ *           failure → verbose(...) → skip to (4)
+ *   (2) cache <codeId>  →  validator gate if caller provided one;
+ *                          evict + fall through on mismatch
+ *   (3) chain originalCodeStorage(codeId)  →  size guard,
+ *                                             extractSailsIdl,
+ *                                             validator gate,
+ *                                             writeCachedIdl on success
+ *   (4) bundled IDLs (v1, validator-gated) — unchanged vft/dex path
+ *   (5) throw IDL_NOT_FOUND — hint mentions `idl import`
+ * ```
+ *
+ * The validator gate at stages (2) and (3) is the safety contract for
+ * vft/dex flows: a bad `idl import` or an unexpected on-chain WASM does
+ * not get served as an authoritative IDL; the bundled fallback still
+ * gets its turn.
+ */
 async function resolveIdl(
   api: GearApi,
   options: SailsSetupOptions,
   parser: V1Parser | null,
 ): Promise<string> {
-  // 1. Local file
+  // (1) Local file — always wins when provided.
   if (options.idl) {
     verbose(`Loading IDL from file: ${options.idl}`);
     try {
@@ -207,76 +246,146 @@ async function resolveIdl(
     }
   }
 
-  // 2. Remote fetch via meta-storage
-  const config = readConfig();
-  const metaStorageUrl = process.env.VARA_META_STORAGE || config.metaStorageUrl;
-  let metaStorageError: Error | null = null;
+  // Hoisted codeId lookup — shared by stages (2) and (3). Failures are
+  // ambiguous (program missing, RPC drop, light-client limit, bad input)
+  // so we do NOT invent a PROGRAM_NOT_FOUND; fall through to bundled/throw.
+  let codeId: string | null = null;
+  try {
+    codeId = await api.program.codeId(options.programId);
+    verbose(`Resolved codeId for ${options.programId}: ${codeId}`);
+  } catch (err) {
+    verbose(`codeId lookup failed for ${options.programId}: ${errorMessage(err)}`);
+  }
 
-  if (metaStorageUrl) {
-    verbose(`Fetching IDL from meta-storage for program ${options.programId}`);
-    try {
-      const codeId = await api.program.codeId(options.programId);
-      verbose(`Program codeId: ${codeId}`);
-
-      const url = `${metaStorageUrl}/sails?codeId=${codeId}`;
-      verbose(`Fetching IDL from ${url}`);
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new CliError(
-          `Meta-storage returned ${response.status}: ${response.statusText}`,
-          'META_STORAGE_ERROR',
-        );
+  // (2) Cache hit.
+  if (codeId) {
+    const cached = readCachedIdl(codeId);
+    if (cached) {
+      if (!options.idlValidator || !parser) {
+        verbose(`IDL cache hit: ${codeId} (source=${cached.meta.source})`);
+        return cached.idl;
       }
-      const data = await response.json() as { result?: string; idl?: string };
-      const idl = data.result || data.idl;
-      if (!idl) {
-        throw new CliError(
-          `No IDL found in meta-storage`,
-          'IDL_NOT_FOUND',
-        );
+      // Validator provided (vft/dex path). Re-check that the cached IDL
+      // actually matches what the caller needs; a bad `idl import` against
+      // this codeId would otherwise silently serve the wrong IDL forever.
+      if (validateIdlAgainst(parser, cached.idl, options.idlValidator)) {
+        verbose(`IDL cache hit (validator passed): ${codeId}`);
+        return cached.idl;
       }
-      return idl;
-    } catch (err) {
-      metaStorageError = err instanceof Error ? err : new Error(String(err));
-      verbose(`Meta-storage failed: ${metaStorageError.message}`);
+      verbose(`IDL cache hit but validator rejected — evicting ${codeId}`);
+      evictCachedIdl(codeId);
     }
   }
 
-  // 3. Bundled IDL fallback (v1 only; requires validator + v1 parser).
+  // (3) Chain WASM.
+  if (codeId) {
+    const extracted = await tryExtractFromChain(api, codeId);
+    if (extracted !== null) {
+      if (!options.idlValidator || !parser) {
+        writeCachedIdl(codeId, extracted, {
+          version: detectIdlVersion(extracted),
+          source: 'chain',
+          importedAt: new Date().toISOString(),
+        });
+        return extracted;
+      }
+      if (validateIdlAgainst(parser, extracted, options.idlValidator)) {
+        writeCachedIdl(codeId, extracted, {
+          version: detectIdlVersion(extracted),
+          source: 'chain',
+          importedAt: new Date().toISOString(),
+        });
+        verbose(`IDL from chain WASM (validator passed): ${codeId}`);
+        return extracted;
+      }
+      verbose(`IDL from chain WASM rejected by validator; not caching. codeId=${codeId}`);
+      // Fall through to bundled — the chain IDL was real but doesn't
+      // match the caller's contract (e.g. a non-VFT program addressed
+      // via the vft command).
+    }
+  }
+
+  // (4) Bundled IDL fallback (v1 only; requires validator + v1 parser).
   if (options.idlValidator && parser) {
     const idlsToTry = options.bundledIdls ?? BUNDLED_VFT_IDLS;
     verbose('Trying bundled IDLs as fallback...');
     for (const bundledIdl of idlsToTry) {
-      try {
-        const probe = new Sails(parser);
-        probe.parseIdl(bundledIdl);
-        if (options.idlValidator(probe)) {
-          verbose('Using bundled IDL (fallback)');
-          return bundledIdl;
-        }
-      } catch {
-        // Parse failed for this IDL, try next
+      if (validateIdlAgainst(parser, bundledIdl, options.idlValidator)) {
+        verbose('Using bundled IDL (fallback)');
+        return bundledIdl;
       }
     }
     verbose('No bundled IDLs matched the required methods');
   }
 
-  // All sources exhausted
-  if (metaStorageError) {
-    if (metaStorageError instanceof CliError) throw metaStorageError;
-    throw new CliError(
-      `Failed to fetch IDL from meta-storage: ${metaStorageError.message}`,
-      'META_STORAGE_ERROR',
-    );
-  }
-
+  // (5) All sources exhausted.
   throw new CliError(
-    'No IDL source available. Try: vara-wallet discover <programId> --idl ./program.idl\n' +
-    'The IDL file (.idl) comes from the program\'s source repo.\n' +
-    'Or set meta-storage: vara-wallet config set metaStorageUrl https://meta-storage.vara.network',
+    `No IDL source available for program ${options.programId}.\n` +
+    `- v2 programs: the IDL is read from the on-chain WASM's \`sails:idl\` section.\n` +
+    `  If that failed, the program may be v1 or built with sails < 1.0.0-beta.1.\n` +
+    `- v1 programs: import the IDL manually:\n` +
+    `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
+    `  (IDLs are typically shipped in the project's GitHub repo.)\n` +
+    `- One-off: pass --idl <path.idl>.\n` +
+    `Run with --verbose to see which sources were tried and why each failed.`,
     'IDL_NOT_FOUND',
   );
+}
+
+/** Fetch the program's original WASM via `gearProgram.originalCodeStorage`
+ *  and extract the `sails:idl` custom section. Returns the IDL text,
+ *  or null when the entry is absent / too large / has no custom section.
+ *  Malformed WASM bytes surface as an `IDL_PARSE_ERROR` (chain-consistency
+ *  bug worth flagging rather than silently falling back).
+ */
+async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string | null> {
+  verbose(`Fetching original WASM from chain for codeId ${codeId}...`);
+  let option;
+  try {
+    option = await api.query.gearProgram.originalCodeStorage(codeId);
+  } catch (err) {
+    verbose(`originalCodeStorage RPC failed: ${errorMessage(err)}`);
+    return null;
+  }
+  // @polkadot/api returns Option<Bytes>; `.isSome` / `.unwrap()` are the
+  // idiomatic accessors (mirroring the existing api.program.* style).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const opt = option as any;
+  if (!opt?.isSome) {
+    verbose(`originalCodeStorage returned None for codeId ${codeId}`);
+    return null;
+  }
+  const bytes: Uint8Array = opt.unwrap().toU8a();
+  if (bytes.length > MAX_WASM_BYTES) {
+    verbose(`WASM size ${bytes.length} exceeds MAX_WASM_BYTES; refusing to parse`);
+    return null;
+  }
+  try {
+    const idl = extractSailsIdl(bytes);
+    if (idl === null) {
+      verbose(`No sails:idl custom section in WASM for codeId ${codeId}`);
+    }
+    return idl;
+  } catch (err) {
+    throw new CliError(
+      `Failed to extract sails:idl from on-chain WASM: ${errorMessage(err)}`,
+      'IDL_PARSE_ERROR',
+    );
+  }
+}
+
+/** Parse `idl` with the provided v1 parser and run the caller's validator
+ *  against the resulting Sails instance. Returns false on either parse
+ *  failure or validator rejection — a single "can this IDL serve this
+ *  caller?" yes/no. */
+function validateIdlAgainst(parser: V1Parser, idl: string, validator: (sails: Sails) => boolean): boolean {
+  try {
+    const probe = new Sails(parser);
+    probe.parseIdl(idl);
+    return validator(probe);
+  } catch {
+    return false;
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
