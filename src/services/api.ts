@@ -75,12 +75,17 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
   return apiPromise;
 }
 
-// Filter @polkadot's RPC-CORE disconnect warnings during shutdown
-const origWarn = console.warn;
-console.warn = (...args: unknown[]) => {
-  if (isDisconnecting && typeof args[0] === 'string' && args[0].includes('RPC-CORE')) return;
-  origWarn.apply(console, args);
-};
+// Filter @polkadot's RPC-CORE disconnect noise from stderr.
+// The logger writes through console.error() → process.stderr.write().
+// Patching at the stderr level is simpler and guaranteed to catch it
+// regardless of how esbuild bundles module scopes.
+const origStderrWrite = process.stderr.write.bind(process.stderr);
+const rpcCoreRe = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+RPC-CORE:/;
+process.stderr.write = ((chunk: Uint8Array | string, ...rest: unknown[]) => {
+  const s = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+  if (rpcCoreRe.test(s)) return true;
+  return origStderrWrite(chunk as any, ...rest);
+}) as typeof process.stderr.write;
 
 export function disconnectApi(): void {
   isDisconnecting = true;
