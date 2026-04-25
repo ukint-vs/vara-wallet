@@ -23,16 +23,14 @@ export function registerMessagesCommand(parent: Command): void {
     .command('messages')
     .description('Subscribe to program messages and events')
     .argument('<programId>', 'program ID to watch (hex or SS58)')
-    .option('--type <eventType>', 'specific event type (Gear pallet event or Sails Service/Event)')
+    .option('--event <eventType>', 'event filter: Gear pallet name (UserMessageSent), Sails Service/Event, bare Sails event, or pallet:Name to force pallet vocab')
     .option('--from-block <number>', 'backfill from a specific block number')
     .option('--idl <path>', 'path to local IDL file (forces Sails-aware decode)')
-    .option('--pallet-event', 'force Gear pallet event resolution even when an IDL is loaded')
     .option('--no-decode', 'disable opportunistic IDL auto-load (raw output only)')
     .action(async (programId: string, options: {
-      type?: string;
+      event?: string;
       fromBlock?: string;
       idl?: string;
-      palletEvent?: boolean;
       decode?: boolean;
     }) => {
       const opts = parent.parent!.optsWithGlobals() as { ws?: string; count?: string; timeout?: string; persist?: boolean };
@@ -61,8 +59,8 @@ export function registerMessagesCommand(parent: Command): void {
         }
       }
 
-      if (options.type) {
-        const filter = resolveSubscribeFilter(options.type, sails, options.palletEvent === true);
+      if (options.event) {
+        const filter = resolveSubscribeFilter(options.event, sails);
         const fromBlock = options.fromBlock ? validateFromBlock(options.fromBlock) : undefined;
 
         if (filter.kind === 'pallet') {

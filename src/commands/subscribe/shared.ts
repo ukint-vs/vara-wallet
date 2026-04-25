@@ -285,20 +285,27 @@ export function formatUserMessageSentMaybeDecoded(
 }
 
 /**
- * Resolved filter for `--type` / `--event` flags on watch / subscribe.
+ * Resolved filter for the `--event` flag on watch / subscribe messages.
  *
- * `pallet` — match a `gearEvents` pallet event by name (back-compat).
+ * `pallet` — match a `gearEvents` pallet event by name.
  * `sails` — match a Sails IDL event by `(service, event)`.
  *
- * Resolution order: Gear vocab first, then Sails IDL. This preserves
- * back-compat for users who already type `--event UserMessageSent`
- * (it always resolves to the pallet event, never to a same-named
- * Sails event). Users who want a Sails event can pass `Service/Event`
- * (always unambiguous) or a bare name that exists only in the IDL.
+ * Resolution order:
+ *   1. `pallet:` prefix → strip and resolve as pallet event (forces pallet
+ *      vocab even when an IDL is loaded). Replaces the old `--pallet-event`
+ *      flag with a single-flag mental model.
+ *   2. Bare names that match the legacy Gear vocab → pallet path
+ *      (back-compat: existing scripts using `--event UserMessageSent`
+ *      keep working).
+ *   3. Sails IDL lookup if an IDL is loaded — bare names that match a
+ *      Sails event resolve to the sails path. `Service/Event` is always
+ *      unambiguous.
+ *   4. Falls back to pallet validation, which surfaces a clean error if
+ *      the name doesn't match anywhere.
  *
- * `forcePallet=true` skips the IDL lookup entirely. Used by the
- * `--pallet-event` escape-hatch flag for the rare case where a user
- * has loaded an IDL but wants the pallet path anyway.
+ * Ambiguous bare Sails names (same name in multiple services) hard-fail
+ * with `AMBIGUOUS_EVENT` listing the alternatives — `resolveEventName`
+ * throws that and we let it propagate.
  */
 export type ResolvedSubscribeFilter =
   | { kind: 'sails'; service: string; event: string }
@@ -307,17 +314,17 @@ export type ResolvedSubscribeFilter =
 export function resolveSubscribeFilter(
   name: string,
   sails: LoadedSails | null,
-  forcePallet: boolean,
 ): ResolvedSubscribeFilter {
+  // `pallet:` prefix forces pallet vocab regardless of IDL state.
+  // Replaces the old `--pallet-event` boolean flag with inline syntax.
+  if (name.startsWith('pallet:')) {
+    return { kind: 'pallet', event: validateEventName(name.slice('pallet:'.length)) };
+  }
   // Gear-first precedence — bare names that match the legacy pallet vocab
-  // always resolve to the pallet path. Codex finding #5: anything else
-  // would silently break existing scripts when an IDL happens to declare
-  // a same-named event.
+  // always resolve to the pallet path. Anything else would silently break
+  // existing scripts when an IDL happens to declare a same-named event.
   if (!name.includes('/') && (VALID_GEAR_EVENTS as readonly string[]).includes(name)) {
     return { kind: 'pallet', event: name as GearEventName };
-  }
-  if (forcePallet) {
-    return { kind: 'pallet', event: validateEventName(name) };
   }
   if (sails) {
     // resolveEventName throws AMBIGUOUS_EVENT on multi-service bare-name
