@@ -294,17 +294,30 @@ export function registerVftCommand(program: Command): void {
       verbose(`Querying VFT balance for ${address} on ${tokenProgram}`);
 
       const query = sails.services[serviceName].queries['BalanceOf'];
-      const result = await query(address).call();
+      const raw = await query(address).call();
+
+      // Route through decodeSailsResult so opt u256 returns (e.g.
+      // VftExtension.BalanceOf for an account with no balance row) come
+      // through as null instead of crashing BigInt(null) downstream.
+      // findVftService picks WHICHEVER service declares BalanceOf — could
+      // be the standard Vft (returns u256) or VftExtension (returns
+      // opt u256), depending on IDL author. Both shapes must be safe.
+      const decoded = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
 
       const decimals = await queryDecimals(sails, serviceName);
+
+      // Null means the account has no balance row — surface as '0' for
+      // consistency with on-chain semantics (a missing row IS zero
+      // balance from a transfer-spending perspective).
+      const balanceStr = decoded === null ? '0' : String(decoded);
 
       output({
         tokenProgram,
         account: address,
         balance: decimals !== null
-          ? minimalToVara(BigInt(result), decimals)
-          : String(result),
-        balanceRaw: String(result),
+          ? minimalToVara(BigInt(balanceStr), decimals)
+          : balanceStr,
+        balanceRaw: balanceStr,
         ...(decimals !== null && { decimals }),
       });
     });
@@ -332,18 +345,25 @@ export function registerVftCommand(program: Command): void {
       verbose(`Querying allowance for owner=${owner} spender=${spender} on ${tokenProgram}`);
 
       const query = sails.services[serviceName].queries['Allowance'];
-      const result = await query(owner, spender).call();
+      const raw = await query(owner, spender).call();
+
+      // Same null-safety pattern as `vft balance` above: route through
+      // decodeSailsResult so opt u256 returns (no allowance row) come
+      // through as null instead of crashing BigInt(null).
+      const decoded = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
 
       const decimals = await queryDecimals(sails, serviceName);
+
+      const allowanceStr = decoded === null ? '0' : String(decoded);
 
       output({
         tokenProgram,
         owner,
         spender,
         allowance: decimals !== null
-          ? minimalToVara(BigInt(result), decimals)
-          : String(result),
-        allowanceRaw: String(result),
+          ? minimalToVara(BigInt(allowanceStr), decimals)
+          : allowanceStr,
+        allowanceRaw: allowanceStr,
         ...(decimals !== null && { decimals }),
       });
     });
