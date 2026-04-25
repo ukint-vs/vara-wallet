@@ -174,13 +174,13 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
-vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>]
+vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
+vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>] [--all]
 ```
 
-Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array. `--payload` and `--idl` are mutually exclusive.
+Use `--idl` to auto-encode the constructor payload from a Sails IDL file. The constructor is auto-selected if the IDL has only one; use `--init <name>` when multiple constructors exist. `--args` passes constructor arguments as a JSON array, or use `--args-file <path>` to read JSON from a file (or `-` for stdin). `--payload` and `--idl` are mutually exclusive. `--dry-run` encodes the constructor payload and exits without signing or submitting; the response reports the resolved constructor name, encoded hex, and `willSubmit: false`.
 
 ```bash
 # Deploy with IDL-based constructor encoding (auto-selects "New" constructor)
@@ -203,13 +203,17 @@ vara-wallet code list [--count <n>]
 
 ### `call` (Sails)
 
-High-level method invocation on Sails programs. Auto-detects queries vs functions. Use `--estimate` to calculate gas cost without sending the transaction (requires an account).
+High-level method invocation on Sails programs. Auto-detects queries vs functions. Use `--estimate` to calculate gas cost without sending the transaction (requires an account). Use `--dry-run` to encode the SCALE payload and exit without signing or submitting (works without a wallet — useful for previewing payloads on read-only machines).
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate]
+vara-wallet call <programId> <Service/Method> [--args <json> | --args-file <path>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate | --dry-run]
 ```
 
 For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the program's on-chain WASM — `--idl` is only needed for v1 programs or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch.
+
+`--args-file <path>` reads the JSON args from a file instead of the `--args` string; use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures with nested JSON containing hex actor IDs or 64-byte `vec u8` signatures. Mutually exclusive with `--args` (`INVALID_ARGS_SOURCE`). `--estimate` and `--dry-run` are mutually exclusive (`CONFLICTING_OPTIONS`).
+
+The JSON response includes an `events: [...]` field with any decoded Sails events emitted by the call, phase-correlated to the submitting extrinsic (cross-transaction events from the same block are excluded). Nested numeric leaves (`U256`, `u128`) inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user types are recursively decoded to decimal strings to match the declared IDL return type.
 
 ### `discover` (Sails)
 
@@ -309,7 +313,7 @@ Subscribe to on-chain events with NDJSON streaming and optional SQLite persisten
 
 ```bash
 vara-wallet subscribe blocks [--finalized]
-vara-wallet subscribe messages <programId> [--type <eventName>] [--from-block <n>]
+vara-wallet subscribe messages <programId> [--event <type>] [--type <eventName>] [--from-block <n>] [--idl <path>] [--pallet-event] [--no-decode]
 vara-wallet subscribe mailbox <address>
 vara-wallet subscribe balance <address>
 vara-wallet subscribe transfers [--from <addr>] [--to <addr>]
@@ -320,6 +324,8 @@ vara-wallet subscribe program <programId>
 - `--count <n>` — exit after N events (useful for scripting)
 - `--timeout <seconds>` — exit after N seconds
 - `--no-persist` — stream only, skip SQLite persistence
+
+`subscribe messages` shares the IDL-aware filtering and decoding behavior described under `watch` above (`--event Service/Event`, `--pallet-event`, `--no-decode`).
 
 ### `inbox`
 
@@ -344,15 +350,21 @@ vara-wallet events prune [--older-than <duration>]
 Stream program events as NDJSON. For persistent event capture with SQLite storage, see `subscribe` above.
 
 ```bash
-vara-wallet watch <programId> [--event <type>]
+vara-wallet watch <programId> [--event <type>] [--idl <path>] [--pallet-event] [--no-decode]
 ```
+
+`--event` accepts both Gear pallet event names (`UserMessageSent`, `MessageQueued`, ...) and Sails events as `Service/Event` or bare `Event` (when unambiguous across services). Pallet vocabulary resolves to the legacy pallet path first so existing scripts keep working; ambiguous bare Sails names fail fast with `AMBIGUOUS_EVENT` listing the alternatives.
+
+When an IDL is loaded (explicit `--idl` or auto-resolved from the on-chain WASM), each emitted `UserMessageSent` is augmented with a decoded `sails: { service, event, data }` block alongside the existing raw fields (`payload`, `source`, `destination`, ...) — additive, so consumers parsing raw NDJSON keep working. Use `--pallet-event` to force pallet-event resolution even with an IDL loaded; `--no-decode` disables the opportunistic IDL auto-load entirely.
 
 ### `encode` / `decode`
 
 ```bash
-vara-wallet encode <type> <value> [--metadata <path>] [--idl <path>] [--program <id>] [--method <Service/Method>]
+vara-wallet encode <type> [value] [--args-file <path>] [--metadata <path>] [--idl <path>] [--program <id>] [--method <Service/Method>]
 vara-wallet decode <type> <hex> [--metadata <path>] [--idl <path>] [--program <id>] [--method <Service/Method>]
 ```
+
+For `encode`, the JSON value can be passed positionally or via `--args-file <path>` (use `-` for stdin). Positional and `--args-file` are mutually exclusive (`INVALID_ARGS_SOURCE`). Stdin via `--args-file -` rejects fast with `STDIN_IS_TTY` when no pipe is attached.
 
 ### `config`
 
@@ -425,7 +437,10 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `WRONG_NETWORK` | Command not available on this network (e.g., faucet on mainnet) |
 | `INVALID_NETWORK` | Unknown `--network` value |
 | `INVALID_CONFIG_KEY` | Unknown config key passed to `config set/get` |
-| `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`) |
+| `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`, `--estimate` + `--dry-run`) |
+| `INVALID_ARGS_SOURCE` | `--args` and `--args-file` (or positional value + `--args-file` on `encode`) used together |
+| `STDIN_IS_TTY` | `--args-file -` used with no pipe attached |
+| `AMBIGUOUS_EVENT` | Bare Sails event name resolves to multiple services — qualify as `Service/Event` |
 | `FAUCET_ERROR` | Faucet request failed |
 | `PROGRAM_ERROR` | Sails program execution failed (panic/error) |
 | `FAUCET_LIMIT` | Faucet daily/hourly limit reached |
