@@ -35,14 +35,10 @@ export function registerCallCommand(program: Command): void {
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
 
-      // Mutual exclusion: --estimate and --dry-run are both "preview" modes;
-      // picking one is unambiguous. Surface explicitly.
-      if (options.estimate && options.dryRun) {
-        throw new CliError(
-          'Cannot use --estimate and --dry-run together; pick one.',
-          'CONFLICTING_OPTIONS',
-        );
-      }
+      // --estimate and --dry-run COMPOSE on functions: when both are set,
+      // we encode the payload AND compute gas estimate (requires account).
+      // The legacy mutex was overly restrictive; previewing both is the
+      // common case for "what will this cost AND what payload am I sending".
 
       const api = await getApi(opts.ws);
 
@@ -118,31 +114,49 @@ export function registerCallCommand(program: Command): void {
  * Build the dry-run output object for a function call.
  * Pure helper so it can be unit-tested without wiring the full Commander
  * action. Key order is fixed for deterministic agent-friendly output.
+ *
+ * `destination` is the program ID the message is bound for. Surfaced
+ * separately from `encodedPayload` (the SCALE-encoded call) so callers
+ * can identify both pieces from a single dry-run reply.
+ *
+ * `estimateGas`, when present, is the result of composing --dry-run with
+ * --estimate (requires an account). Absent on plain --dry-run.
  */
 export function buildFunctionDryRun(input: {
   service: string;
   method: string;
   args: unknown[];
   encodedPayload: string;
+  destination: string;
   value?: string;
   gasLimit?: string;
   voucherId?: string;
+  estimateGas?: { gasLimit: string | null; minLimit: string | null };
 }): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     kind: 'function',
     service: input.service,
     method: input.method,
     args: input.args,
     encodedPayload: input.encodedPayload,
+    destination: input.destination,
     value: input.value ?? '0',
     gasLimit: input.gasLimit ?? null,
     voucherId: input.voucherId ?? null,
-    willSubmit: false,
   };
+  if (input.estimateGas) {
+    out.estimateGas = input.estimateGas;
+  }
+  out.willSubmit = false;
+  return out;
 }
 
 /**
  * Build the dry-run output object for a query call.
+ *
+ * Queries do not have a `destination` field today because the on-chain
+ * query path does not surface one separately from the program ID supplied
+ * by the caller. Add if a use case emerges.
  */
 export function buildQueryDryRun(input: {
   service: string;
@@ -221,17 +235,28 @@ async function executeFunction(
   const func = sails.services[serviceName].functions[methodName];
   args = coerceArgsAuto(args, func.args, sails, serviceName);
 
-  // Dry-run: encode payload and exit. No account, no gas calc, no submit.
-  // This must run BEFORE any account / value resolution so agents on
-  // machines with no wallet configured can still preview a payload.
-  if (options.dryRun) {
-    const txBuilder = func(...args);
-    const encodedPayload = txBuilder.payload;
+  // Dry-run + estimate composition. Both are read-only previews:
+  //   --dry-run      : encode payload, no account needed.
+  //   --estimate     : compute gas, account required.
+  //   both together  : encode payload AND compute gas, account required.
+  //   neither        : real submission (further down).
+  //
+  // encodePayload(...args) is the canonical SCALE-encoder on the function
+  // reference itself (mirrors the executeQuery path at this file's earlier
+  // query.encodePayload call). txBuilder.programId surfaces the destination
+  // explicitly. Both are resolved up front so the dry-run path needs no
+  // account, while the dry-run+estimate path falls through to gas calc.
+  const txBuilder = func(...args);
+  const encodedPayload = func.encodePayload(...args);
+  const destination = txBuilder.programId;
+
+  if (options.dryRun && !options.estimate) {
     output(buildFunctionDryRun({
       service: serviceName,
       method: methodName,
       args,
       encodedPayload,
+      destination,
       value: options.value !== '0' ? options.value : undefined,
       gasLimit: options.gasLimit,
       voucherId: options.voucher,
@@ -248,8 +273,6 @@ async function executeFunction(
     await validateVoucher(api, accountHex, options.voucher, programId);
   }
 
-  const txBuilder = func(...args);
-
   txBuilder.withAccount(account);
 
   if (value > 0n) {
@@ -265,12 +288,33 @@ async function executeFunction(
   }
 
   if (options.estimate) {
-    output({
-      estimate: true,
-      gasLimit: (txBuilder.gasInfo as any)?.limit?.toString() ?? txBuilder.gasInfo?.min_limit?.toString() ?? null,
-      minLimit: txBuilder.gasInfo?.min_limit?.toString() ?? null,
-      value: value.toString(),
-    });
+    const gasLimitStr = (txBuilder.gasInfo as any)?.limit?.toString() ?? txBuilder.gasInfo?.min_limit?.toString() ?? null;
+    const minLimitStr = txBuilder.gasInfo?.min_limit?.toString() ?? null;
+
+    if (options.dryRun) {
+      // Composition: dry-run shape with estimateGas appended.
+      output(buildFunctionDryRun({
+        service: serviceName,
+        method: methodName,
+        args,
+        encodedPayload,
+        destination,
+        value: options.value !== '0' ? options.value : undefined,
+        gasLimit: options.gasLimit,
+        voucherId: options.voucher,
+        estimateGas: { gasLimit: gasLimitStr, minLimit: minLimitStr },
+      }));
+    } else {
+      // Pure --estimate (no --dry-run): preserve the legacy lean shape so
+      // existing scripts parsing { estimate: true, gasLimit, minLimit, value }
+      // keep working unchanged.
+      output({
+        estimate: true,
+        gasLimit: gasLimitStr,
+        minLimit: minLimitStr,
+        value: value.toString(),
+      });
+    }
     return;
   }
 

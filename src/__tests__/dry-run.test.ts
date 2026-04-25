@@ -7,6 +7,7 @@ describe('buildFunctionDryRun', () => {
       method: 'Increment',
       args: [1, 2, 3],
       encodedPayload: '0xdeadbeef',
+      destination: '0x' + '11'.repeat(32),
     });
     expect(out).toEqual({
       kind: 'function',
@@ -14,6 +15,7 @@ describe('buildFunctionDryRun', () => {
       method: 'Increment',
       args: [1, 2, 3],
       encodedPayload: '0xdeadbeef',
+      destination: '0x' + '11'.repeat(32),
       value: '0',
       gasLimit: null,
       voucherId: null,
@@ -27,6 +29,7 @@ describe('buildFunctionDryRun', () => {
       method: 'M',
       args: [],
       encodedPayload: '0x00',
+      destination: '0xbeef',
       value: '1000000000000',
       gasLimit: '5000000',
       voucherId: '0xfeed',
@@ -35,6 +38,33 @@ describe('buildFunctionDryRun', () => {
     expect(out.gasLimit).toBe('5000000');
     expect(out.voucherId).toBe('0xfeed');
     expect(out.willSubmit).toBe(false);
+    expect(out.destination).toBe('0xbeef');
+  });
+
+  it('includes estimateGas when supplied (composition with --estimate)', () => {
+    const out = buildFunctionDryRun({
+      service: 'S',
+      method: 'M',
+      args: [],
+      encodedPayload: '0x00',
+      destination: '0xbeef',
+      estimateGas: { gasLimit: '5000000000', minLimit: '4500000000' },
+    });
+    expect(out.estimateGas).toEqual({ gasLimit: '5000000000', minLimit: '4500000000' });
+    // Estimate is purely additive: dry-run shape preserved.
+    expect(out.kind).toBe('function');
+    expect(out.willSubmit).toBe(false);
+  });
+
+  it('omits estimateGas when not supplied (plain --dry-run path)', () => {
+    const out = buildFunctionDryRun({
+      service: 'S',
+      method: 'M',
+      args: [],
+      encodedPayload: '0x00',
+      destination: '0xbeef',
+    });
+    expect(out).not.toHaveProperty('estimateGas');
   });
 
   it('emits keys in deterministic order (kind first, willSubmit last)', () => {
@@ -43,10 +73,27 @@ describe('buildFunctionDryRun', () => {
       method: 'M',
       args: [],
       encodedPayload: '0x00',
+      destination: '0xbeef',
     });
     const keys = Object.keys(out);
     expect(keys[0]).toBe('kind');
     expect(keys[keys.length - 1]).toBe('willSubmit');
+  });
+
+  it('emits keys in deterministic order with estimateGas (still kind first, willSubmit last)', () => {
+    const out = buildFunctionDryRun({
+      service: 'S',
+      method: 'M',
+      args: [],
+      encodedPayload: '0x00',
+      destination: '0xbeef',
+      estimateGas: { gasLimit: '1', minLimit: '1' },
+    });
+    const keys = Object.keys(out);
+    expect(keys[0]).toBe('kind');
+    expect(keys[keys.length - 1]).toBe('willSubmit');
+    // estimateGas slots in just before willSubmit.
+    expect(keys[keys.length - 2]).toBe('estimateGas');
   });
 });
 
@@ -83,6 +130,7 @@ describe('dry-run does not invoke network methods', () => {
     const signAndSend = jest.fn();
     const fakeBuilder = {
       payload: '0xfeedface',
+      programId: '0xbeef',
       signAndSend,
     };
     // The helper does not touch the builder — the action layer does.
@@ -91,7 +139,8 @@ describe('dry-run does not invoke network methods', () => {
       service: 'S',
       method: 'M',
       args: [],
-      encodedPayload: fakeBuilder.payload,
+      encodedPayload: '0xc0ffee',
+      destination: fakeBuilder.programId,
     });
     expect(signAndSend).not.toHaveBeenCalled();
   });
