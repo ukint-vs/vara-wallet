@@ -146,11 +146,22 @@ export function enumerateCacheEntries(): CacheEntrySummary[] {
     if (!name.endsWith('.cache.json')) continue;
     const codeId = name.slice(0, -'.cache.json'.length);
     const file = path.join(dir, name);
+    // Single corrupted-row template — both unparsable JSON (catch) and
+    // unexpected-shape JSON (if-branch) surface the same row to the
+    // caller, who can `idl remove` either kind by codeId.
+    const corruptedRow: CacheEntrySummary = {
+      codeId,
+      version: 'unknown',
+      source: 'unknown',
+      importedAt: null,
+      idlSizeBytes: 0,
+      error: 'corrupted',
+    };
     try {
       const raw = fs.readFileSync(file, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<CacheFile>;
       if (!parsed || typeof parsed.idl !== 'string') {
-        out.push({ codeId, version: 'unknown', source: 'unknown', importedAt: null, idlSizeBytes: 0, error: 'corrupted' });
+        out.push(corruptedRow);
         continue;
       }
       out.push({
@@ -161,7 +172,7 @@ export function enumerateCacheEntries(): CacheEntrySummary[] {
         idlSizeBytes: Buffer.byteLength(parsed.idl, 'utf-8'),
       });
     } catch {
-      out.push({ codeId, version: 'unknown', source: 'unknown', importedAt: null, idlSizeBytes: 0, error: 'corrupted' });
+      out.push(corruptedRow);
     }
   }
   return out;
