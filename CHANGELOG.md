@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.1] - 2026-04-25
+
+### Fixed
+- `--json` mode no longer leaks `@polkadot` RPC-CORE disconnect warnings to stderr during shutdown. Previously `vara-wallet node info --json`, `balance --json`, etc. could emit `RPC-CORE: ...disconnected from wss://...` lines that broke downstream JSON parsers. The earlier `console.warn` patch in `src/services/api.ts` didn't fire because esbuild's module bundling put the logger's `console.error` call in a different scope, and the matcher was checking the wrong argument index. Replaced with a `process.stderr.write` interceptor matching the logger's timestamped `RPC-CORE:` prefix — bundle-scope-independent. `--verbose` output unaffected. (#34)
+- TypeScript build of the same patch: `(chunk, ...rest)` signature didn't match the `process.stderr.write` overloads, so `ts-jest` failed to compile 7 test suites (esbuild bundling silently passed, masking the issue in `npm run build`). Reworked the wrapper to a single rest-parameter form that satisfies both overloads.
+
 ## [0.14.0] - 2026-04-24
 
 ### Added

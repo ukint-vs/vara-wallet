@@ -81,10 +81,11 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
 // regardless of how esbuild bundles module scopes.
 const origStderrWrite = process.stderr.write.bind(process.stderr);
 const rpcCoreRe = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+RPC-CORE:/;
-process.stderr.write = ((chunk: Uint8Array | string, ...rest: unknown[]) => {
-  const s = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+process.stderr.write = ((...args: unknown[]) => {
+  const chunk = args[0];
+  const s = typeof chunk === 'string' ? chunk : Buffer.from(chunk as Uint8Array).toString();
   if (rpcCoreRe.test(s)) return true;
-  return origStderrWrite(chunk as any, ...rest);
+  return (origStderrWrite as (...a: unknown[]) => boolean)(...args);
 }) as typeof process.stderr.write;
 
 export function disconnectApi(): void {
