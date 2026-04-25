@@ -313,7 +313,7 @@ Subscribe to on-chain events with NDJSON streaming and optional SQLite persisten
 
 ```bash
 vara-wallet subscribe blocks [--finalized]
-vara-wallet subscribe messages <programId> [--event <type>] [--type <eventName>] [--from-block <n>] [--idl <path>] [--pallet-event] [--no-decode]
+vara-wallet subscribe messages <programId> [--type <Service/Event | EventName>] [--from-block <n>] [--idl <path>] [--pallet-event] [--no-decode]
 vara-wallet subscribe mailbox <address>
 vara-wallet subscribe balance <address>
 vara-wallet subscribe transfers [--from <addr>] [--to <addr>]
@@ -325,7 +325,7 @@ vara-wallet subscribe program <programId>
 - `--timeout <seconds>` — exit after N seconds
 - `--no-persist` — stream only, skip SQLite persistence
 
-`subscribe messages` shares the IDL-aware filtering and decoding behavior described under `watch` above (`--event Service/Event`, `--pallet-event`, `--no-decode`).
+`subscribe messages` shares the IDL-aware filtering and decoding behavior described under `watch` above. The filter flag is named `--type` here (vs `--event` on `watch`), but accepts the same values: Gear pallet event names, qualified `Service/Event`, or bare Sails event names. `--pallet-event` and `--no-decode` work the same way.
 
 ### `inbox`
 
