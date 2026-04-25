@@ -111,6 +111,37 @@ export function registerCallCommand(program: Command): void {
 }
 
 /**
+ * Resolve the dry-run payload + destination for a function call.
+ *
+ * `encodedPayload` MUST come from `func.encodePayload(...args)` — the
+ * canonical SCALE encoder. `txBuilder.payload` (sails-js's
+ * `this._tx.args[0].toHex()`) is the message destination program ID,
+ * not the encoded call. Surfacing both pieces from one helper makes the
+ * contract testable: a regression that swapped `encodedPayload` to
+ * `txBuilder.payload` would visibly disagree with `destination` in
+ * tests, where the production code did silently the wrong thing.
+ *
+ * Takes `txBuilder` as a separate arg (instead of building one
+ * internally) so the action handler doesn't double-build txBuilder
+ * when it also needs gas-calc / signAndSend on the same instance.
+ *
+ * Exported with the `_…ForTests` suffix to match the convention used by
+ * `_tryExtractFromChainForTests` and `_resolveIdlForTests` in
+ * `src/services/sails.ts` — public surface is reserved for the action
+ * handler, this is purely a regression-test seam.
+ */
+export function _resolveDryRunPayloadForTests(
+  func: { encodePayload: (...args: unknown[]) => string },
+  txBuilder: { programId: string },
+  args: unknown[],
+): { encodedPayload: string; destination: string } {
+  return {
+    encodedPayload: func.encodePayload(...args),
+    destination: txBuilder.programId,
+  };
+}
+
+/**
  * Build the dry-run output object for a function call.
  * Pure helper so it can be unit-tested without wiring the full Commander
  * action. Key order is fixed for deterministic agent-friendly output.
@@ -241,14 +272,12 @@ async function executeFunction(
   //   both together  : encode payload AND compute gas, account required.
   //   neither        : real submission (further down).
   //
-  // encodePayload(...args) is the canonical SCALE-encoder on the function
-  // reference itself (mirrors the executeQuery path at this file's earlier
-  // query.encodePayload call). txBuilder.programId surfaces the destination
-  // explicitly. Both are resolved up front so the dry-run path needs no
-  // account, while the dry-run+estimate path falls through to gas calc.
+  // _resolveDryRunPayloadForTests is the canonical encoder seam (also
+  // exported as a regression hook). The dry-run+estimate path falls
+  // through to gas calc, which mutates txBuilder via
+  // withAccount/withValue/calculateGas — same instance, no rebuild.
   const txBuilder = func(...args);
-  const encodedPayload = func.encodePayload(...args);
-  const destination = txBuilder.programId;
+  const { encodedPayload, destination } = _resolveDryRunPayloadForTests(func, txBuilder, args);
 
   if (options.dryRun && !options.estimate) {
     output(buildFunctionDryRun({

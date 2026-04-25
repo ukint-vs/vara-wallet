@@ -78,6 +78,38 @@ async function queryDecimals(sails: Sails, serviceName: string): Promise<number 
 }
 
 /**
+ * Build the JSON output shape for `vft balance` / `vft allowance` from
+ * the decoded query result. Pulled out as a pure helper so the U8
+ * null-safety contract has a unit-test seam.
+ *
+ * Contract:
+ *   - `decoded === null` (Option::None from `opt u256` returns) → '0'.
+ *     Mirrors on-chain semantics where a missing balance / allowance
+ *     row is indistinguishable from zero from the spend perspective.
+ *   - `decimals === null` → emit raw + raw (no human form).
+ *   - Otherwise → convert with `minimalToVara(BigInt(raw), decimals)`.
+ *
+ * `kind` controls the field naming so balance and allowance share the
+ * same translation logic without duplicating two near-identical inline
+ * blocks at the call sites.
+ */
+export function _formatVftAmountForTests(
+  decoded: unknown,
+  decimals: number | null,
+  kind: 'balance' | 'allowance',
+): { rawStr: string; humanStr: string; decimals: number | null } {
+  const rawStr = decoded === null ? '0' : String(decoded);
+  const humanStr = decimals !== null
+    ? minimalToVara(BigInt(rawStr), decimals)
+    : rawStr;
+  // `kind` is part of the API so callers can't accidentally swap balance
+  // ↔ allowance — keeping it as a discriminator forces sites to be
+  // explicit about which they're emitting.
+  void kind;
+  return { rawStr, humanStr, decimals };
+}
+
+/**
  * Resolve an amount for a VFT transaction.
  *
  * Vocabulary (unified in 0.15.0):
@@ -303,21 +335,14 @@ export function registerVftCommand(program: Command): void {
       // be the standard Vft (returns u256) or VftExtension (returns
       // opt u256), depending on IDL author. Both shapes must be safe.
       const decoded = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
-
       const decimals = await queryDecimals(sails, serviceName);
-
-      // Null means the account has no balance row — surface as '0' for
-      // consistency with on-chain semantics (a missing row IS zero
-      // balance from a transfer-spending perspective).
-      const balanceStr = decoded === null ? '0' : String(decoded);
+      const { rawStr, humanStr } = _formatVftAmountForTests(decoded, decimals, 'balance');
 
       output({
         tokenProgram,
         account: address,
-        balance: decimals !== null
-          ? minimalToVara(BigInt(balanceStr), decimals)
-          : balanceStr,
-        balanceRaw: balanceStr,
+        balance: humanStr,
+        balanceRaw: rawStr,
         ...(decimals !== null && { decimals }),
       });
     });
@@ -351,19 +376,15 @@ export function registerVftCommand(program: Command): void {
       // decodeSailsResult so opt u256 returns (no allowance row) come
       // through as null instead of crashing BigInt(null).
       const decoded = decodeSailsResult(sails, query.returnTypeDef, raw, serviceName);
-
       const decimals = await queryDecimals(sails, serviceName);
-
-      const allowanceStr = decoded === null ? '0' : String(decoded);
+      const { rawStr, humanStr } = _formatVftAmountForTests(decoded, decimals, 'allowance');
 
       output({
         tokenProgram,
         owner,
         spender,
-        allowance: decimals !== null
-          ? minimalToVara(BigInt(allowanceStr), decimals)
-          : allowanceStr,
-        allowanceRaw: allowanceStr,
+        allowance: humanStr,
+        allowanceRaw: rawStr,
         ...(decimals !== null && { decimals }),
       });
     });

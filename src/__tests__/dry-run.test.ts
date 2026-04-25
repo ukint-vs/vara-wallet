@@ -1,4 +1,4 @@
-import { buildFunctionDryRun, buildQueryDryRun } from '../commands/call';
+import { buildFunctionDryRun, buildQueryDryRun, _resolveDryRunPayloadForTests } from '../commands/call';
 
 describe('buildFunctionDryRun', () => {
   it('returns the documented dry-run shape with required fields', () => {
@@ -113,6 +113,66 @@ describe('buildQueryDryRun', () => {
       encodedPayload: '0xabcd',
       willSubmit: false,
     });
+  });
+});
+
+/**
+ * B2 regression contract: encodedPayload MUST come from func.encodePayload(),
+ * NOT from txBuilder.payload (sails-js's destination-program-id getter).
+ *
+ * The pre-0.15 bug returned `txBuilder.payload` which is `args[0].toHex()`
+ * inside sails-js's TransactionBuilder — i.e. the destination program ID,
+ * not the SCALE-encoded call. A revert would have all dry-run helper
+ * tests still pass because the helper takes encodedPayload as a literal
+ * arg. This test plants different values for `.payload` (the bug shape)
+ * and `.encodePayload(...)` (the fix), and asserts the helper picks the
+ * right one.
+ */
+describe('B2 regression: _resolveDryRunPayloadForTests', () => {
+  it('picks encodedPayload from func.encodePayload(...args), not txBuilder.payload', () => {
+    const SCALE_BYTES = '0xCALLED_ENCODE_PAYLOAD';
+    const PROG_ID = '0x' + 'aa'.repeat(32);
+    const BUGGY_PAYLOAD = PROG_ID; // what txBuilder.payload would return
+
+    const encodePayload = jest.fn().mockReturnValue(SCALE_BYTES);
+    const txBuilder = { payload: BUGGY_PAYLOAD, programId: PROG_ID };
+    // Function-shaped object with .encodePayload — mirrors sails-js func reference.
+    // Cast through `any` because we mock a thin slice of the sails-js surface.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const func = Object.assign(jest.fn().mockReturnValue(txBuilder), { encodePayload }) as any;
+
+    const result = _resolveDryRunPayloadForTests(func, txBuilder, [42, 'foo', { nested: true }]);
+
+    expect(result.encodedPayload).toBe(SCALE_BYTES);
+    expect(result.encodedPayload).not.toBe(BUGGY_PAYLOAD); // the bug shape
+    expect(result.encodedPayload).not.toBe(PROG_ID); // the bug-equivalent
+    expect(result.destination).toBe(PROG_ID);
+    expect(encodePayload).toHaveBeenCalledWith(42, 'foo', { nested: true });
+  });
+
+  it('forwards args verbatim to encodePayload (no transformation)', () => {
+    const encodePayload = jest.fn().mockReturnValue('0x00');
+    const txBuilder = { programId: '0xbeef' };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const func = Object.assign(jest.fn().mockReturnValue(txBuilder), { encodePayload }) as any;
+
+    _resolveDryRunPayloadForTests(func, txBuilder, []);
+    expect(encodePayload).toHaveBeenCalledWith();
+
+    encodePayload.mockClear();
+    _resolveDryRunPayloadForTests(func, txBuilder, [1n, 2n, 'three']);
+    expect(encodePayload).toHaveBeenCalledWith(1n, 2n, 'three');
+  });
+
+  it('reads destination from txBuilder.programId, separate from the encoded bytes', () => {
+    const encodePayload = jest.fn().mockReturnValue('0x' + 'cafe'.repeat(8));
+    const txBuilder = { programId: '0x' + 'dead'.repeat(16) };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const func = Object.assign(jest.fn().mockReturnValue(txBuilder), { encodePayload }) as any;
+
+    const result = _resolveDryRunPayloadForTests(func, txBuilder, []);
+    expect(result.destination).toBe(txBuilder.programId);
+    expect(result.encodedPayload).not.toBe(result.destination);
   });
 });
 
