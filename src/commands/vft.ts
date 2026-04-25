@@ -79,8 +79,15 @@ async function queryDecimals(sails: Sails, serviceName: string): Promise<number 
 
 /**
  * Resolve an amount for a VFT transaction.
- * With --units token: queries decimals and converts. Hard-fails if decimals unavailable.
- * Default (raw): passes through as BigInt.
+ *
+ * Vocabulary (unified in 0.15.0):
+ *   - `human` : query the token's decimals via the IDL and convert.
+ *               Hard-fails if decimals query is unavailable.
+ *   - `raw`   : default — pass through as BigInt (minimal units).
+ *
+ * Anything else is INVALID_UNITS. The legacy `token` literal (0.14.x) is
+ * intentionally rejected — `human` is the unified vocabulary across all
+ * commands; for VFT it means "use the token's declared decimals".
  */
 async function resolveVftAmount(
   sails: Sails,
@@ -88,18 +95,18 @@ async function resolveVftAmount(
   amount: string,
   units?: string,
 ): Promise<bigint> {
-  if (units !== undefined && units !== 'raw' && units !== 'token') {
+  if (units !== undefined && units !== 'raw' && units !== 'human') {
     throw new CliError(
-      `Invalid --units value: "${units}". Must be "raw" or "token".`,
+      `Invalid --units value: "${units}". Must be "raw" or "human".`,
       'INVALID_UNITS',
     );
   }
 
-  if (units === 'token') {
+  if (units === 'human') {
     const decimals = await queryDecimals(sails, serviceName);
     if (decimals === null) {
       throw new CliError(
-        'Cannot use --units token: Decimals query is not available on this token program.',
+        'Cannot use --units human: Decimals query is not available on this token program.',
         'DECIMALS_UNAVAILABLE',
       );
     }
@@ -118,7 +125,7 @@ async function resolveVftAmount(
     return BigInt(amount);
   } catch {
     throw new CliError(
-      `Invalid amount: "${amount}". Use a whole number for raw units, or --units token for decimal amounts.`,
+      `Invalid amount: "${amount}". Use a whole number for raw units, or --units human for decimal amounts.`,
       'INVALID_AMOUNT',
     );
   }
@@ -349,7 +356,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<to>', 'destination address')
     .argument('<amount>', 'amount to transfer')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)', undefined)
     .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
@@ -376,7 +383,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<spender>', 'spender address')
     .argument('<amount>', 'amount to approve')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)', undefined)
     .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, spender: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
@@ -404,7 +411,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<to>', 'destination address')
     .argument('<amount>', 'amount to transfer')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)', undefined)
     .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, from: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
@@ -431,7 +438,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<to>', 'recipient address')
     .argument('<amount>', 'amount to mint')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)', undefined)
     .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, to: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
@@ -458,7 +465,7 @@ export function registerVftCommand(program: Command): void {
     .argument('<from>', 'address to burn from')
     .argument('<amount>', 'amount to burn')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token', undefined)
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)', undefined)
     .option('--voucher <id>', 'voucher ID to pay for the transaction')
     .action(async (tokenProgram: string, from: string, amount: string, options: VftTxOptions) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };

@@ -268,18 +268,18 @@ async function resolveTokenAmount(
   amount: string,
   units?: string,
 ): Promise<bigint> {
-  if (units !== undefined && units !== 'raw' && units !== 'token') {
+  if (units !== undefined && units !== 'raw' && units !== 'human') {
     throw new CliError(
-      `Invalid --units value: "${units}". Must be "raw" or "token".`,
+      `Invalid --units value: "${units}". Must be "raw" or "human".`,
       'INVALID_UNITS',
     );
   }
 
-  if (units === 'token') {
+  if (units === 'human') {
     const decimals = await queryTokenDecimals(api, tokenAddress);
     if (decimals === null) {
       throw new CliError(
-        'Cannot use --units token: Decimals query is not available on this token program.',
+        'Cannot use --units human: Decimals query is not available on this token program.',
         'DECIMALS_UNAVAILABLE',
       );
     }
@@ -298,7 +298,7 @@ async function resolveTokenAmount(
     return BigInt(amount);
   } catch {
     throw new CliError(
-      `Invalid amount: "${amount}". Use a whole number for raw units, or --units token for decimal amounts.`,
+      `Invalid amount: "${amount}". Use a whole number for raw units, or --units human for decimal amounts.`,
       'INVALID_AMOUNT',
     );
   }
@@ -618,7 +618,7 @@ export function registerDexCommand(program: Command): void {
     .argument('<amount>', 'input amount (or output amount with --reverse)')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token')
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)')
     .option('--reverse', 'calculate required input for exact output')
     .action(async (tokenIn: string, tokenOut: string, amount: string, options: {
       factory?: string; idl?: string; units?: string; reverse?: boolean;
@@ -695,7 +695,7 @@ export function registerDexCommand(program: Command): void {
     .argument('<amount>', 'amount to swap')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token')
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)')
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--exact-out', 'treat amount as exact output (swap tokens for exact tokens)')
@@ -800,7 +800,7 @@ export function registerDexCommand(program: Command): void {
     .argument('<amount1>', 'desired amount of second token')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token')
+    .option('--units <type>', 'amount units: raw (default) or human (uses token decimals)')
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--skip-approve', 'skip automatic token approval')
@@ -897,7 +897,7 @@ export function registerDexCommand(program: Command): void {
     .argument('<liquidity>', 'LP token amount to burn')
     .option('--factory <addr>', 'factory program address')
     .option('--idl <path>', 'path to local IDL file')
-    .option('--units <type>', 'amount units: raw (default) or token (uses LP decimals)')
+    .option('--units <type>', 'amount units: raw (default) or human (uses LP decimals)')
     .option('--slippage <bps>', `slippage tolerance in basis points (default: ${DEFAULT_SLIPPAGE_BPS})`)
     .option('--deadline <seconds>', `tx deadline in seconds (default: ${DEFAULT_DEADLINE_SECONDS})`)
     .option('--skip-approve', 'skip automatic token approval')

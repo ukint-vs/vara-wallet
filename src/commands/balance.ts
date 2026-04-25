@@ -34,7 +34,7 @@ export function registerBalanceCommand(program: Command): void {
     .description('Transfer VARA tokens')
     .argument('<to>', 'destination address (hex or SS58)')
     .argument('[amount]', 'amount to transfer (in VARA by default)')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--all', 'transfer entire balance (account will be reaped)')
     .action(async (to: string, amount: string | undefined, options: { units?: string; all?: boolean }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
@@ -71,8 +71,7 @@ export function registerBalanceCommand(program: Command): void {
           amountRaw: balanceRaw.toString(),
         });
       } else {
-        const isRaw = options.units === 'raw';
-        const amountMinimal = resolveAmount(amount!, isRaw);
+        const amountMinimal = resolveAmount(amount!, options.units);
 
         if (amountMinimal <= 0n) {
           throw new CliError('Amount must be positive', 'INVALID_AMOUNT');

@@ -16,7 +16,7 @@ export function registerCallCommand(program: Command): void {
     .option('--args <json>', 'method arguments as JSON array (default: [])')
     .option('--args-file <path>', 'read --args JSON from file (use - for stdin)')
     .option('--value <value>', 'value to send (in VARA, functions only)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--gas-limit <gas>', 'gas limit override (functions only)')
     .option('--idl <path>', 'path to local IDL file')
     .option('--voucher <id>', 'voucher ID to pay for the message')
@@ -265,8 +265,7 @@ async function executeFunction(
   }
 
   const account = await resolveAccount(opts);
-  const isRaw = options.units === 'raw';
-  const value = resolveAmount(options.value, isRaw);
+  const value = resolveAmount(options.value, options.units);
 
   if (options.voucher) {
     const accountHex = addressToHex(account.address);

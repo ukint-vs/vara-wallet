@@ -40,11 +40,40 @@ describe('minimalToVara', () => {
 });
 
 describe('resolveAmount', () => {
-  it('converts VARA by default', () => {
+  it('converts VARA by default (units omitted)', () => {
     expect(resolveAmount('2')).toBe(2_000_000_000_000n);
   });
 
-  it('passes through raw units', () => {
-    expect(resolveAmount('12345', true)).toBe(12345n);
+  it('converts VARA when units = "human"', () => {
+    expect(resolveAmount('2', 'human')).toBe(2_000_000_000_000n);
+  });
+
+  it('passes through raw units when units = "raw"', () => {
+    expect(resolveAmount('12345', 'raw')).toBe(12345n);
+  });
+
+  it('rejects invalid --units values with INVALID_UNITS', () => {
+    let caught: unknown;
+    try {
+      resolveAmount('1', 'potato');
+    } catch (err) { caught = err; }
+    expect(caught).toBeDefined();
+    expect((caught as { code?: string }).code).toBe('INVALID_UNITS');
+  });
+
+  it('rejects the legacy "vara" literal (renamed to human in 0.15)', () => {
+    let caught: unknown;
+    try {
+      resolveAmount('1', 'vara');
+    } catch (err) { caught = err; }
+    expect((caught as { code?: string }).code).toBe('INVALID_UNITS');
+  });
+
+  it('rejects the legacy "token" literal (renamed to human in 0.15)', () => {
+    let caught: unknown;
+    try {
+      resolveAmount('1', 'token');
+    } catch (err) { caught = err; }
+    expect((caught as { code?: string }).code).toBe('INVALID_UNITS');
   });
 });
