@@ -4,99 +4,57 @@ All notable changes to this project will be documented in this file.
 
 ## [0.15.0] - 2026-04-25
 
-This release unifies the CLI surface that 0.11.x – 0.14.x grew organically. npm registry is on 0.10.0 when this ships, so the breaking changes below affect git-tracking users only — there are no published-version users using the renamed flags / fields. Take the cleanup now while it's free.
+First publish since 0.10.0. This release collapses the work that landed in git as 0.11 / 0.12 / 0.13 / 0.14 / 0.14.1 (none reached npm) into a single coherent surface, plus the UX cleanup that surfaced when documenting them. Upgrading from 0.10.0: install fresh, no migration needed.
+
+### Added
+
+**IDL surface**
+- `idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)` — seed the local IDL cache for v1 programs or out-of-band IDLs.
+- `idl list` — print every cached IDL entry as `[{ codeId, version, source, importedAt, idlSizeBytes }]`. Corrupted entries surface as `{ codeId, error: 'corrupted', ... }` rows so a single bad file never crashes the listing.
+- `idl remove <code-id>` — remove one entry. Idempotent: missing entries return `{ removed: false }` and exit 0.
+- `idl clear [--yes]` — terraform-style: bare invocation prints a `wouldRemove` preview without unlinking; `--yes` commits. `EACCES` surfaces as `PERMISSION_DENIED`.
+- Auto-resolve IDL from on-chain WASM for v2 programs (sails ≥ 1.0.0-beta.1): `call` and `discover` work without `--idl`. Extracted from the `sails:idl` custom section of the program's WASM via `gearProgram.originalCodeStorage(codeId)`. Cached at `~/.vara-wallet/idl-cache/<codeId>.cache.json`; subsequent calls skip the fetch. Cache entries are validator-gated for `vft`/`dex` — a poisoned import gets evicted on first validator miss.
+
+**Call surface**
+- `call --dry-run` — encode the SCALE payload and exit without signing or submitting. Output: `{ kind, service, method, args, encodedPayload, destination, value, gasLimit, voucherId, willSubmit: false }`. Works without a wallet.
+- `call --estimate --dry-run` compose: same dry-run shape with `estimateGas: { gasLimit, minLimit }` appended (account required since estimate needs one).
+- `--args-file <path>` on `call`, `encode`, `program upload`, `program deploy` — read JSON args from a file (`-` for stdin). Eliminates shell-escape failures with nested JSON, hex actor IDs, or 64-byte `vec u8` signatures. Mutually exclusive with `--args` (`INVALID_ARGS_SOURCE`); stdin without a pipe attached fails fast with `STDIN_IS_TTY`.
+- `--dry-run` on `program upload` and `program deploy` — encode the constructor payload + report resolved constructor name without uploading.
+- SS58 addresses (`5Grw...`) accepted in `--args` for any `ActorId`-typed positional or struct-nested argument. Canonical hex input remains byte-identical on the wire.
+- `events: [...]` field on `call` JSON response with phase-correlated decoded Sails events.
+- Cross-service hint on `METHOD_NOT_FOUND` ("Did you mean `OtherService/Method`?").
+- `PROGRAM_ERROR` carries a structured `reason` subcode for both function calls and queries.
+
+**Subscribe / watch**
+- IDL-aware event decoding: when an IDL is loaded, `UserMessageSent` events get a `decoded: { kind: 'sails', service, event, data }` block alongside the raw fields. Additive — consumers parsing raw NDJSON keep working. The `kind` discriminator future-proofs the surface for additional decoder types.
+- `--event` filter on both `watch` and `subscribe messages` accepts: Gear pallet event names, qualified `Service/Event`, bare Sails event names (when unambiguous across services), or `pallet:<Name>` to force pallet vocabulary even with an IDL loaded. Ambiguous bare Sails names hard-fail with `AMBIGUOUS_EVENT` listing the alternatives.
+- `--no-decode` to disable the opportunistic IDL auto-load entirely.
+- New `src/services/sails-events.ts` module exposing `decodeSailsEvent`, `listEventNames`, `resolveEventName`, `collectDecodedEvents`. Walks v2 `service.extends` recursively.
+
+**Wallet / chain**
+- `wallet keys <name>` — export raw key material (`address`, `publicKey`, `secretKeyPkcs8`, `type`) for Polkadot tooling.
+- `transfer --all` — drain the entire account via Substrate's native `transferAll` extrinsic (no client-side fee/ED math).
 
 ### Fixed
-- **IDL auto-resolve from on-chain WASM** worked nowhere. `option.unwrap().toU8a()` in `tryExtractFromChain` (`src/services/sails.ts:355`) returned the bytes with a SCALE compact-length prefix, so the WASM-magic check downstream failed on every program with a confusing `IDL_PARSE_ERROR`. Fixed with `.toU8a(true)`. After this, v1 programs cleanly fall through to `IDL_NOT_FOUND` (and the `--idl` / `idl import` paths take over), and v2 programs get a real shot at the cache. Verified end-to-end against polybaskets contracts. New regression test: `src/__tests__/sails-extract-from-chain.test.ts` (5 tests, mocks the codec to assert `isBare=true` is used).
-- **`call --dry-run` reported the wrong `encodedPayload`**. `txBuilder.payload` returns `this._tx.args[0].toHex()` in sails-js's `TransactionBuilder`, which is the destination program ID (the first arg of `api.message.send`), not the SCALE-encoded message. Field name lied about its contents. Fixed by using `func.encodePayload(...args)` — the canonical SCALE encoder on the function reference itself, mirroring the pattern queries already used. Also surfaces `destination: <hex>` as a separate field so callers see both pieces unambiguously.
-- **`vft balance` and `vft allowance` crashed with `BigInt(null)`** when `findVftService` resolved to `VftExtension` (declared as `opt u256`) and the account had no balance / allowance row. Routed both through the existing `decodeSailsResult` walker (`src/utils/decode-sails-result.ts`, landed in #40); null surfaces as `'0'` in both `balance` and `balanceRaw` (matching on-chain semantics where a missing row is indistinguishable from zero). Closes the P2 item from `TODOS.md`.
+- IDL auto-resolve from on-chain WASM was broken on every program: `option.unwrap().toU8a()` returned bytes with a SCALE compact-length prefix, so the WASM-magic check failed with a confusing `IDL_PARSE_ERROR`. Fixed with `.toU8a(true)`. Verified end-to-end against polybaskets contracts.
+- `call --dry-run` `encodedPayload` reported the destination program ID instead of the actual SCALE-encoded message (sails-js's `txBuilder.payload` is `args[0].toHex()`, not the encoded call). Fixed by using `func.encodePayload(...args)`. The destination program ID is now surfaced separately as `destination`.
+- `vft balance` and `vft allowance` crashed with `BigInt(null)` when `findVftService` resolved to `VftExtension.BalanceOf` (declared `opt u256`) for accounts with no balance row. Routed through `decodeSailsResult`; null surfaces as `'0'`.
+- Nested `U256` / `u128` / `u64` inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user-defined types now decode to decimal strings recursively (was: leaked as raw `0x...` hex). Applies to `call`, `vft`, and `dex` responses.
+- Sails program errors surface readable messages with `PROGRAM_ERROR` instead of `[object Object]`.
+- `--json` mode no longer leaks `@polkadot` RPC-CORE disconnect warnings to stderr during shutdown. Filter intercepts at `process.stderr.write` (bundle-scope-independent).
+- `formatError()` fallback properly serializes non-Error objects via `JSON.stringify`.
 
-### Added
-- **`vara-wallet idl list`** — prints every cached IDL entry as `[{ codeId, version, source, importedAt, idlSizeBytes }, ...]`. Empty cache returns `[]`. Corrupted entries surface as `{ codeId, error: 'corrupted', ... }` rows so a single bad file never crashes the listing.
-- **`vara-wallet idl remove <code-id>`** — removes one cache entry. Idempotent: removing a non-existent entry returns `{ removed: false, codeId }` and exit 0, not an error. Reuses the strict 32-byte hex validator from `idl import`.
-- **`vara-wallet idl clear [--yes]`** — terraform-style: bare invocation prints a `wouldRemove` preview without unlinking; `--yes` commits. Snapshot-then-unlink under the hood: enumeration happens once, `ENOENT` during unlink is swallowed (race tolerance for parallel writers — cache is a recoverable resource so locking is over-engineering). `EACCES` surfaces as a clean `PERMISSION_DENIED` error code.
-- **New helper `enumerateCacheEntries()` in `src/services/idl-cache.ts`** — single source of truth for the iteration shape, reused by both `idl list` and `idl clear` preview. Forward-compatible reads (optional chaining on every meta field) so a future writer adding fields, or a pre-this-PR entry missing some, never crashes.
-- **`call --dry-run --estimate` now compose**. Both are read-only previews; the legacy mutex (`CONFLICTING_OPTIONS`) was overly restrictive. With both set the output merges `encodedPayload`, `destination`, and `estimateGas: { gasLimit, minLimit }` (account required, since estimate does need one). Pure `--estimate` keeps its lean shape unchanged so existing scripts parsing it stay working.
-- **`pallet:` prefix on `--event`** — explicit way to force the pallet vocabulary even with an IDL loaded. Replaces the old `--pallet-event` flag with single-flag mental model. Example: `watch $PID --event pallet:UserMessageSent`. Bare names that match the legacy Gear vocab still resolve to the pallet path (back-compat unchanged).
-- **Smoke test (`scripts/smoke.mjs`) extended** with 7 new bundled-CLI checks covering `idl list/import/remove/clear` happy paths. Catches bundling regressions (esbuild tree-shaking, export renames) that unit tests run against source can't see.
+### Changed (breaking against 0.10.0 only where noted)
 
-### Changed (breaking on the unreleased 0.11+ surface; no published-version users affected)
-- **`--units` vocabulary unified to `human | raw` everywhere**. Before: native commands took `vara | raw` (default `vara`); VFT and DEX took `raw | token` (default `raw`). Two parallel idioms with inverse defaults and inverse polarity. Now: every command accepts `--units human | raw`. `human` means "interpret with the appropriate decimals for this command" — VARA's 12 for native, the token's declared decimals for VFT, LP decimals for `dex add-liquidity`/`remove-liquidity`. Per-command defaults stay (less in-context surprise: native still defaults to `human`, VFT/DEX still default to `raw`); only the vocabulary changes. **The literals `vara` and `token` are intentionally rejected by the validator** with `INVALID_UNITS` — catches stale scripts at the first `--units` pass instead of giving silent wrong-decimals math downstream. Centralized in `resolveAmount(amount, units?: string)` (was `(amount, unitsRaw: boolean)`).
-- **`subscribe messages` flag `--type` renamed to `--event`** — same accepted values (Gear pallet name, Sails `Service/Event`, bare Sails event), unified with `watch` so the flag name doesn't depend on which subscribe sub-surface you happen to be in. One-line search/replace for any committed agent script.
-- **NDJSON `sails:` field renamed to `decoded: { kind: 'sails', service, event, data }`** on `watch` and `subscribe messages` output. The `kind` discriminator future-proofs the surface so a second decoder type (e.g. EVM events) can sit alongside without renaming the top-level field again. Scripts parsing `.sails.event` should read `.decoded.event` and check `.decoded.kind === 'sails'`.
-
-### Removed (breaking on the unreleased 0.11+ surface)
-- **`--pallet-event` flag dropped** on `watch` and `subscribe messages`. Use `--event pallet:<EventName>` instead. The previous flag only mattered when a Sails event name collided with a pallet event name; the new prefix works the same way explicitly.
-
-### Migration from 0.14.x (git users only — npm jumps from 0.10.0 → 0.15.0 in one go, no migration needed)
-1. **`subscribe messages --type X` → `subscribe messages --event X`**. Same accepted values.
-2. **`--pallet-event` → `--event pallet:<Name>`**. The `--pallet-event` flag stops working.
-3. **NDJSON `.sails.*` → `.decoded.*`**, plus check `.decoded.kind === 'sails'` for forward-compat with future decoder types.
-4. **`--units vara` (native commands) → `--units human`** (or omit; it's the default).
-5. **`--units token` (VFT/DEX) → `--units human`**.
-6. **`call --dry-run` JSON output**: the `encodedPayload` field now actually contains the SCALE-encoded call (was incorrectly the program ID); a separate `destination` field carries the program ID. Scripts that took `encodedPayload` and tried to use it as a program ID need to read `destination` instead.
-
-## [0.14.1] - 2026-04-25
-
-### Fixed
-- `--json` mode no longer leaks `@polkadot` RPC-CORE disconnect warnings to stderr during shutdown. Previously `vara-wallet node info --json`, `balance --json`, etc. could emit `RPC-CORE: ...disconnected from wss://...` lines that broke downstream JSON parsers. The earlier `console.warn` patch in `src/services/api.ts` didn't fire because esbuild's module bundling put the logger's `console.error` call in a different scope, and the matcher was checking the wrong argument index. Replaced with a `process.stderr.write` interceptor matching the logger's timestamped `RPC-CORE:` prefix — bundle-scope-independent. `--verbose` output unaffected. (#34)
-- TypeScript build of the same patch: `(chunk, ...rest)` signature didn't match the `process.stderr.write` overloads, so `ts-jest` failed to compile 7 test suites (esbuild bundling silently passed, masking the issue in `npm run build`). Reworked the wrapper to a single rest-parameter form that satisfies both overloads.
-
-## [0.14.0] - 2026-04-24
-
-### Added
-- IDL-aware Sails event decoding in `watch` and `subscribe messages` (closes #36). Loading an IDL (explicitly via `--idl <path>` or auto-resolved from chain WASM) augments each emitted `UserMessageSent` with a `sails: {service, event, data}` block. Existing raw fields (`payload`, `source`, `destination`, etc.) are untouched, so consumers that already parse the raw NDJSON keep working.
-- `--event <Service/Event>` and bare-name Sails event filters on both `watch` and `subscribe messages`. Gear pallet vocabulary (`UserMessageSent`, `MessageQueued`, etc.) still resolves to the legacy pallet path first so existing scripts keep working. Ambiguous bare Sails names hard-fail with `AMBIGUOUS_EVENT` and list the alternatives.
-- `--pallet-event` flag on `watch` / `subscribe messages` to force Gear pallet event resolution even when an IDL is loaded, and `--no-decode` to disable the opportunistic IDL auto-load entirely.
-- Decoded Sails events are appended to the `call` JSON response under a new `events: [...]` key (closes #37). The event scan is phase-correlated to the submitting extrinsic, so cross-transaction events that share the block are excluded. Additive — existing response fields (`txHash`, `blockHash`, `messageId`, `result`, ...) are unchanged.
-- New `src/services/sails-events.ts` module exposing `decodeSailsEvent`, `listEventNames`, `resolveEventName`, and `collectDecodedEvents`. Recursively walks v2 `service.extends`, so events declared in an inherited service are discoverable in filter resolution and decoding.
-- Decoded event payloads flow through the shared `decodeEventData` walker (alias of `decodeSailsResult` from #32), so nested `Option<U256>`, `Vec<U256>`, and user-defined types normalize to the same JSON shape as `call` replies.
-- `--args-file <path>` on `call`, `encode`, `program upload`, and `program deploy` reads the JSON args from a file instead of the `--args` string. Use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures when nested JSON contains hex actor IDs or 64-byte `vec u8` signatures (the failure mode that surfaced as `{"error":"[object Object]","code":"UNKNOWN_ERROR"}` during 2026-04-23 live testing). Closes [#20](https://github.com/gear-foundation/vara-wallet/issues/20).
-- `--dry-run` on `call`, `program upload`, and `program deploy`: encode the SCALE payload and exit without signing or submitting. Output includes the encoded hex, resolved constructor name (for upload/deploy), and `willSubmit: false`. Works without a wallet configured — agents can preview payloads on read-only machines.
-
-### Changed
-- `--args` and `--args-file` are mutually exclusive (`code: INVALID_ARGS_SOURCE`). `--estimate` and `--dry-run` are mutually exclusive on `call` (`code: CONFLICTING_OPTIONS`). Malformed-JSON errors from `--args-file` never echo the file path or content (file may contain test seeds); error reports parse position only.
-- Stdin (`--args-file -`) rejects fast with `STDIN_IS_TTY` when no pipe is attached, instead of hanging waiting for EOF — common AI-agent footgun.
-
-## [0.13.0] - 2026-04-24
-
-### Added
-- Auto-resolve IDL from on-chain WASM for v2 programs (sails ≥ 1.0.0-beta.1): `vara-wallet call` and `vara-wallet discover` now work on any such program without `--idl`. IDL is extracted from the `sails:idl` custom section of the program's original WASM via `gearProgram.originalCodeStorage(codeId)`.
-- Local IDL cache at `~/.vara-wallet/idl-cache/<codeId>.cache.json`. First call against a program fetches the WASM and populates the cache; subsequent calls are free.
-- `vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)` command for seeding the cache with out-of-band IDLs (v1 programs, or any case where the on-chain WASM doesn't carry the section).
-- IDL cache entries are validator-gated on read for `vft`/`dex` commands: if a cached IDL fails the caller's validator (e.g. a bad `idl import` against a VFT program), the entry is evicted and the bundled fallback is tried. Preserves the pre-cache safety contract.
-- Strict validation on `--code-id` input (32-byte hex, with or without `0x` prefix) — rejects path-traversal attempts and malformed hex before they reach the cache layer.
-
-### Removed / Breaking
-- **`metaStorageUrl` config key and `VARA_META_STORAGE` env var are gone.** `vara-wallet config set metaStorageUrl <url>` now errors with `INVALID_CONFIG_KEY`. Empirically the meta-storage endpoint returned 0/13 usable IDLs during 2026-04-23 testing; the new WASM-custom-section path replaces it for v2, and `idl import` replaces it for v1. Stale entries in existing `~/.vara-wallet/config.json` files are silently ignored (no migration required).
+- **CLI is bundled to a single `dist/app.js`** with esbuild. Runtime dependencies shrink from ~120 transitive packages to 2 (`better-sqlite3`, `smoldot`). Fixes the `npm install -g vara-wallet` hangs reported in 0.10. Global install is now ~2 MB gzipped.
+- **Node.js 20 or newer required** (`engines: { node: ">=20" }`). Breaking for any user still on Node 18 or older.
+- **`--units` vocabulary unified to `human | raw`** across every command (was: `vara | raw` for native, `raw | token` for VFT/DEX). `human` interprets with the appropriate decimals — VARA's 12 for native, the token's declared decimals for VFT, LP decimals for `dex add-liquidity`/`remove-liquidity`. Per-command defaults preserved (native still defaults to `human`, VFT/DEX still default to `raw`); only the literal name changes. **The legacy literals `vara` and `token` are rejected with `INVALID_UNITS`** — agents copying old `--units vara` invocations get a clear validator error, not silent wrong-decimals math.
+- **`metaStorageUrl` config key and `VARA_META_STORAGE` env var are removed.** `config set metaStorageUrl <url>` errors with `INVALID_CONFIG_KEY`. Empirically the endpoint returned near-zero usable IDLs; the new WASM-custom-section auto-resolve replaces it for v2, `idl import` replaces it for v1. Stale entries in existing config files are silently ignored.
 
 ### Internal
-- Extracted `writeUserFile` / `writeUserFileAtomic` helpers to `src/utils/secure-file.ts`; `config.ts`, `wallet-store.ts`, and the new `idl-cache.ts` share the "mode 0700 parent + mode 0600 file" idiom.
-
-## [0.12.0] - 2026-04-23
-
-### Added
-- `call`, `encode`, and `program deploy` now accept SS58 addresses (`5Grw...`) in `--args` for any `ActorId`-typed positional or struct-nested argument. Previously only 32-byte hex was accepted, forcing users to manually decode addresses copied from Subscan before passing them to Sails methods like `Vft/BalanceOf`. Canonical hex input remains byte-identical on the wire. Closes [#31](https://github.com/gear-foundation/vara-wallet/issues/31).
-
-### Fixed
-- `call --json` now recursively decodes nested `U256` / `u128` / `u64` into decimal strings when they appear inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user-defined types. Previously only top-level primitives decoded correctly; nested numeric leaves leaked as raw `0x...` hex. Same fix applied to `vft` and `dex` transaction responses (#32).
-- `VftExtension/BalanceOf` now returns `{"result": "186726170"}` (or `null`) instead of a 32-byte hex blob.
-- `VftExtension/Allowances` now returns fully-decoded nested arrays — every inner `U256` is a decimal string, tuples stay as arrays, `ActorId` entries stay hex.
-- Faucet test suite no longer reads the developer's real `~/.vara-wallet/config.json`. The mainnet guard at `faucet.ts:49` was triggering on any dev machine with a mainnet `wsEndpoint` configured, failing 6 tests locally even though CI stayed green.
-
-### Changed
-- **Breaking (for anyone parsing raw hex from `--json` output):** the shape of `result` now matches the declared IDL return type at every level. Callers that expected `"0x..."` for nested `U256` must read the decimal string instead. Top-level primitives (`Vft/TotalSupply`, `VftMetadata/Symbol`) are unchanged.
-
-## [0.11.0] - 2026-04-22
-
-### Added
-- `wallet keys <name>` command: export raw key material (`address`, `publicKey`, `secretKeyPkcs8`, `type`) for use with Polkadot tooling
-- `transfer --all` flag: drain the entire account via Substrate's native `transferAll` extrinsic (no client-side fee/ED math)
-
-### Changed
-- **CLI is now bundled with esbuild into a single `dist/app.js`.** Runtime dependencies shrink from ~120 transitive packages to 2 (`better-sqlite3`, `smoldot`). Fixes reports of `npm install -g vara-wallet` hanging for minutes on slow networks, where npm's retry policy turned stalled tarball fetches into multi-minute retry storms. Global install is now ~2 MB gzipped and a few seconds on any network.
-- **Node.js 20 or newer is now required** (`engines: { node: ">=20" }`). Matches the existing CI matrix.
-- Build script: `npm run build` now invokes `node scripts/build.mjs` instead of `tsc`.
+- Build script: `npm run build` invokes `node scripts/build.mjs` (was: `tsc`).
+- Extracted `writeUserFile` / `writeUserFileAtomic` helpers to `src/utils/secure-file.ts`; `config.ts`, `wallet-store.ts`, and `idl-cache.ts` share the "mode 0700 parent + mode 0600 file" idiom.
+- New regression tests for the on-chain IDL extraction (`sails-extract-from-chain.test.ts`), dry-run encoding contract (`dry-run.test.ts` extended), VFT null-safety (`vft-balance-null-safety.test.ts`), and IDL cache list/remove/clear (`idl-list-remove-clear.test.ts`). 525 → 563 tests.
 
 ## [0.10.0] - 2026-04-09
 
