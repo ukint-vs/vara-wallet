@@ -104,3 +104,65 @@ export function evictCachedIdl(codeId: string): void {
     }
   }
 }
+
+/**
+ * Summary row for `idl list` and `idl clear` preview. One per cache entry.
+ *
+ * Forward-compat note: every meta field uses optional chaining at read time
+ * so a future writer adding new fields, or an older entry missing one,
+ * never crashes the listing.
+ */
+export interface CacheEntrySummary {
+  codeId: string;
+  version: IdlVersion | 'unknown';
+  source: 'chain' | 'import' | 'unknown';
+  importedAt: string | null;
+  idlSizeBytes: number;
+  /** Present only when the entry's JSON failed to parse / had unexpected shape. */
+  error?: 'corrupted';
+}
+
+/**
+ * Enumerate every entry in the IDL cache directory. Returns `[]` when the
+ * directory doesn't exist (fresh install). Per-entry parse errors surface
+ * as `{ codeId, error: 'corrupted', ... }` rows so the user can see and
+ * `idl remove` them — a single bad file does NOT crash the listing.
+ *
+ * Permission / IO errors on the directory itself propagate (mapped to a
+ * clean error code at the command layer).
+ */
+export function enumerateCacheEntries(): CacheEntrySummary[] {
+  const dir = getIdlCacheDir();
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return [];
+    throw err;
+  }
+  const out: CacheEntrySummary[] = [];
+  for (const name of names) {
+    if (!name.endsWith('.cache.json')) continue;
+    const codeId = name.slice(0, -'.cache.json'.length);
+    const file = path.join(dir, name);
+    try {
+      const raw = fs.readFileSync(file, 'utf-8');
+      const parsed = JSON.parse(raw) as Partial<CacheFile>;
+      if (!parsed || typeof parsed.idl !== 'string') {
+        out.push({ codeId, version: 'unknown', source: 'unknown', importedAt: null, idlSizeBytes: 0, error: 'corrupted' });
+        continue;
+      }
+      out.push({
+        codeId,
+        version: parsed.meta?.version ?? 'unknown',
+        source: parsed.meta?.source ?? 'unknown',
+        importedAt: parsed.meta?.importedAt ?? null,
+        idlSizeBytes: Buffer.byteLength(parsed.idl, 'utf-8'),
+      });
+    } catch {
+      out.push({ codeId, version: 'unknown', source: 'unknown', importedAt: null, idlSizeBytes: 0, error: 'corrupted' });
+    }
+  }
+  return out;
+}

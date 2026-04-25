@@ -1,9 +1,20 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
+import * as path from 'path';
 import { getApi } from '../services/api';
-import { writeCachedIdl, getIdlEntryPath } from '../services/idl-cache';
+import {
+  writeCachedIdl,
+  getIdlEntryPath,
+  getIdlCacheDir,
+  enumerateCacheEntries,
+  evictCachedIdl,
+} from '../services/idl-cache';
 import { detectIdlVersion } from '../services/sails';
-import { output, verbose, CliError, addressToHex } from '../utils';
+import { output, verbose, CliError, addressToHex, errorMessage } from '../utils';
+
+/** Strict 32-byte hex (with or without 0x prefix). Reused across idl
+ *  import/remove so the codeId vocabulary is identical. */
+const CODE_ID_HEX_RE = /^(0x)?[0-9a-fA-F]{64}$/;
 
 /**
  * `vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)`
@@ -89,5 +100,76 @@ export function registerIdlCommand(program: Command): void {
         source: 'import',
         path: getIdlEntryPath(codeId),
       });
+    });
+
+  // ───────────── idl list ─────────────
+  idl
+    .command('list')
+    .description('List cached IDL entries')
+    .action(() => {
+      output(enumerateCacheEntries());
+    });
+
+  // ───────────── idl remove <code-id> ─────────────
+  idl
+    .command('remove')
+    .description('Remove a single cached IDL entry (idempotent — non-existent entries return removed: false, exit 0)')
+    .argument('<code-id>', 'code ID (0x-prefixed or bare 32-byte hex)')
+    .action((codeId: string) => {
+      if (!CODE_ID_HEX_RE.test(codeId)) {
+        throw new CliError(
+          `Invalid <code-id>: expected 32-byte hex (0x-prefixed or bare), got "${codeId}"`,
+          'INVALID_CODE_ID',
+        );
+      }
+      const file = getIdlEntryPath(codeId);
+      const existed = fs.existsSync(file);
+      // evictCachedIdl already swallows ENOENT and verbose-logs other errors.
+      evictCachedIdl(codeId);
+      output({ codeId, removed: existed });
+    });
+
+  // ───────────── idl clear [--yes] ─────────────
+  // terraform-style: bare invocation previews; --yes commits.
+  idl
+    .command('clear')
+    .description('Remove all cached IDL entries (terraform-style: bare invocation previews; --yes commits)')
+    .option('--yes', 'actually remove the entries (without --yes, only previews what would be removed)')
+    .action((options: { yes?: boolean }) => {
+      const dir = getIdlCacheDir();
+      // Snapshot — single readdir at the top. New entries created by a
+      // parallel writer between snapshot and unlink will simply survive
+      // until the next clear (recoverable resource, no locking).
+      const entries = enumerateCacheEntries();
+
+      if (!options.yes) {
+        output({
+          wouldRemove: entries.map((e) => ({ codeId: e.codeId, source: e.source })),
+          path: dir,
+          hint: 'vara-wallet idl clear --yes to proceed',
+        });
+        return;
+      }
+
+      let removed = 0;
+      for (const entry of entries) {
+        const file = path.join(dir, `${entry.codeId}.cache.json`);
+        try {
+          fs.unlinkSync(file);
+          removed++;
+          verbose(`IDL cache entry removed: ${entry.codeId}`);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'ENOENT') continue; // race: removed between snapshot and unlink
+          if (code === 'EACCES') {
+            throw new CliError(
+              `Permission denied removing IDL cache entry ${entry.codeId}: ${errorMessage(err)}`,
+              'PERMISSION_DENIED',
+            );
+          }
+          throw err;
+        }
+      }
+      output({ removed, path: dir });
     });
 }
