@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0] - 2026-04-25
+
+This release unifies the CLI surface that 0.11.x – 0.14.x grew organically. npm registry is on 0.10.0 when this ships, so the breaking changes below affect git-tracking users only — there are no published-version users using the renamed flags / fields. Take the cleanup now while it's free.
+
+### Fixed
+- **IDL auto-resolve from on-chain WASM** worked nowhere. `option.unwrap().toU8a()` in `tryExtractFromChain` (`src/services/sails.ts:355`) returned the bytes with a SCALE compact-length prefix, so the WASM-magic check downstream failed on every program with a confusing `IDL_PARSE_ERROR`. Fixed with `.toU8a(true)`. After this, v1 programs cleanly fall through to `IDL_NOT_FOUND` (and the `--idl` / `idl import` paths take over), and v2 programs get a real shot at the cache. Verified end-to-end against polybaskets contracts. New regression test: `src/__tests__/sails-extract-from-chain.test.ts` (5 tests, mocks the codec to assert `isBare=true` is used).
+- **`call --dry-run` reported the wrong `encodedPayload`**. `txBuilder.payload` returns `this._tx.args[0].toHex()` in sails-js's `TransactionBuilder`, which is the destination program ID (the first arg of `api.message.send`), not the SCALE-encoded message. Field name lied about its contents. Fixed by using `func.encodePayload(...args)` — the canonical SCALE encoder on the function reference itself, mirroring the pattern queries already used. Also surfaces `destination: <hex>` as a separate field so callers see both pieces unambiguously.
+- **`vft balance` and `vft allowance` crashed with `BigInt(null)`** when `findVftService` resolved to `VftExtension` (declared as `opt u256`) and the account had no balance / allowance row. Routed both through the existing `decodeSailsResult` walker (`src/utils/decode-sails-result.ts`, landed in #40); null surfaces as `'0'` in both `balance` and `balanceRaw` (matching on-chain semantics where a missing row is indistinguishable from zero). Closes the P2 item from `TODOS.md`.
+
+### Added
+- **`vara-wallet idl list`** — prints every cached IDL entry as `[{ codeId, version, source, importedAt, idlSizeBytes }, ...]`. Empty cache returns `[]`. Corrupted entries surface as `{ codeId, error: 'corrupted', ... }` rows so a single bad file never crashes the listing.
+- **`vara-wallet idl remove <code-id>`** — removes one cache entry. Idempotent: removing a non-existent entry returns `{ removed: false, codeId }` and exit 0, not an error. Reuses the strict 32-byte hex validator from `idl import`.
+- **`vara-wallet idl clear [--yes]`** — terraform-style: bare invocation prints a `wouldRemove` preview without unlinking; `--yes` commits. Snapshot-then-unlink under the hood: enumeration happens once, `ENOENT` during unlink is swallowed (race tolerance for parallel writers — cache is a recoverable resource so locking is over-engineering). `EACCES` surfaces as a clean `PERMISSION_DENIED` error code.
+- **New helper `enumerateCacheEntries()` in `src/services/idl-cache.ts`** — single source of truth for the iteration shape, reused by both `idl list` and `idl clear` preview. Forward-compatible reads (optional chaining on every meta field) so a future writer adding fields, or a pre-this-PR entry missing some, never crashes.
+- **`call --dry-run --estimate` now compose**. Both are read-only previews; the legacy mutex (`CONFLICTING_OPTIONS`) was overly restrictive. With both set the output merges `encodedPayload`, `destination`, and `estimateGas: { gasLimit, minLimit }` (account required, since estimate does need one). Pure `--estimate` keeps its lean shape unchanged so existing scripts parsing it stay working.
+- **`pallet:` prefix on `--event`** — explicit way to force the pallet vocabulary even with an IDL loaded. Replaces the old `--pallet-event` flag with single-flag mental model. Example: `watch $PID --event pallet:UserMessageSent`. Bare names that match the legacy Gear vocab still resolve to the pallet path (back-compat unchanged).
+- **Smoke test (`scripts/smoke.mjs`) extended** with 7 new bundled-CLI checks covering `idl list/import/remove/clear` happy paths. Catches bundling regressions (esbuild tree-shaking, export renames) that unit tests run against source can't see.
+
+### Changed (breaking on the unreleased 0.11+ surface; no published-version users affected)
+- **`--units` vocabulary unified to `human | raw` everywhere**. Before: native commands took `vara | raw` (default `vara`); VFT and DEX took `raw | token` (default `raw`). Two parallel idioms with inverse defaults and inverse polarity. Now: every command accepts `--units human | raw`. `human` means "interpret with the appropriate decimals for this command" — VARA's 12 for native, the token's declared decimals for VFT, LP decimals for `dex add-liquidity`/`remove-liquidity`. Per-command defaults stay (less in-context surprise: native still defaults to `human`, VFT/DEX still default to `raw`); only the vocabulary changes. **The literals `vara` and `token` are intentionally rejected by the validator** with `INVALID_UNITS` — catches stale scripts at the first `--units` pass instead of giving silent wrong-decimals math downstream. Centralized in `resolveAmount(amount, units?: string)` (was `(amount, unitsRaw: boolean)`).
+- **`subscribe messages` flag `--type` renamed to `--event`** — same accepted values (Gear pallet name, Sails `Service/Event`, bare Sails event), unified with `watch` so the flag name doesn't depend on which subscribe sub-surface you happen to be in. One-line search/replace for any committed agent script.
+- **NDJSON `sails:` field renamed to `decoded: { kind: 'sails', service, event, data }`** on `watch` and `subscribe messages` output. The `kind` discriminator future-proofs the surface so a second decoder type (e.g. EVM events) can sit alongside without renaming the top-level field again. Scripts parsing `.sails.event` should read `.decoded.event` and check `.decoded.kind === 'sails'`.
+
+### Removed (breaking on the unreleased 0.11+ surface)
+- **`--pallet-event` flag dropped** on `watch` and `subscribe messages`. Use `--event pallet:<EventName>` instead. The previous flag only mattered when a Sails event name collided with a pallet event name; the new prefix works the same way explicitly.
+
+### Migration from 0.14.x (git users only — npm jumps from 0.10.0 → 0.15.0 in one go, no migration needed)
+1. **`subscribe messages --type X` → `subscribe messages --event X`**. Same accepted values.
+2. **`--pallet-event` → `--event pallet:<Name>`**. The `--pallet-event` flag stops working.
+3. **NDJSON `.sails.*` → `.decoded.*`**, plus check `.decoded.kind === 'sails'` for forward-compat with future decoder types.
+4. **`--units vara` (native commands) → `--units human`** (or omit; it's the default).
+5. **`--units token` (VFT/DEX) → `--units human`**.
+6. **`call --dry-run` JSON output**: the `encodedPayload` field now actually contains the SCALE-encoded call (was incorrectly the program ID); a separate `destination` field carries the program ID. Scripts that took `encodedPayload` and tried to use it as a program ID need to read `destination` instead.
+
 ## [0.14.1] - 2026-04-25
 
 ### Fixed

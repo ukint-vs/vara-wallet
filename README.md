@@ -203,17 +203,19 @@ vara-wallet code list [--count <n>]
 
 ### `call` (Sails)
 
-High-level method invocation on Sails programs. Auto-detects queries vs functions. Use `--estimate` to calculate gas cost without sending the transaction (requires an account). Use `--dry-run` to encode the SCALE payload and exit without signing or submitting (works without a wallet — useful for previewing payloads on read-only machines).
+High-level method invocation on Sails programs. Auto-detects queries vs functions. `--estimate` computes gas cost (account required). `--dry-run` encodes the SCALE payload without signing / submitting (no account needed, useful for previewing on read-only machines). The two compose: passing both encodes AND estimates in one call.
 
 ```bash
-vara-wallet call <programId> <Service/Method> [--args <json> | --args-file <path>] [--value <v>] [--units vara|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate | --dry-run]
+vara-wallet call <programId> <Service/Method> [--args <json> | --args-file <path>] [--value <v>] [--units human|raw] [--gas-limit <n>] [--idl <path>] [--voucher <id>] [--estimate] [--dry-run]
 ```
 
-For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the program's on-chain WASM — `--idl` is only needed for v1 programs or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch.
+For v2 programs (sails ≥ 1.0.0-beta.1) the IDL is auto-resolved from the program's on-chain WASM — `--idl` is only needed for v1 programs (use `idl import`) or when overriding with a local file. Resolved IDLs are cached under `~/.vara-wallet/idl-cache/` so subsequent calls skip the fetch. Inspect or evict the cache with `vara-wallet idl list/remove/clear`.
 
-`--args-file <path>` reads the JSON args from a file instead of the `--args` string; use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures with nested JSON containing hex actor IDs or 64-byte `vec u8` signatures. Mutually exclusive with `--args` (`INVALID_ARGS_SOURCE`). `--estimate` and `--dry-run` are mutually exclusive (`CONFLICTING_OPTIONS`).
+`--args-file <path>` reads the JSON args from a file instead of the `--args` string; use `-` for stdin (`echo '[...]' | vara-wallet call ... --args-file -`). Eliminates shell-escape failures with nested JSON containing hex actor IDs or 64-byte `vec u8` signatures. Mutually exclusive with `--args` (`INVALID_ARGS_SOURCE`).
 
-The JSON response includes an `events: [...]` field with any decoded Sails events emitted by the call, phase-correlated to the submitting extrinsic (cross-transaction events from the same block are excluded). Nested numeric leaves (`U256`, `u128`) inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user types are recursively decoded to decimal strings to match the declared IDL return type.
+`--dry-run` output includes `encodedPayload` (the actual SCALE-encoded call bytes — round-trippable via `decode`), `destination` (the program ID the message is bound for), and `willSubmit: false`. With `--estimate` also set, `estimateGas: { gasLimit, minLimit }` is appended.
+
+The JSON response from a real submission includes an `events: [...]` field with any decoded Sails events emitted by the call, phase-correlated to the submitting extrinsic (cross-transaction events from the same block are excluded). Nested numeric leaves (`U256`, `u128`) inside `Option`, `Vec`, tuples, structs, enums, `Result`, or user types are recursively decoded to decimal strings to match the declared IDL return type.
 
 ### `discover` (Sails)
 
@@ -227,15 +229,19 @@ Same auto-resolution as `call`.
 
 ### `idl` (Sails IDL cache)
 
-Seed the local IDL cache with an out-of-band IDL. Needed for v1 programs (no embedded IDL in WASM) and for one-off imports. Once imported, `call`/`discover`/`vft`/`dex` find the IDL automatically for that program's `codeId`.
+Manage the local IDL cache at `~/.vara-wallet/idl-cache/`. The cache is populated automatically when v2 programs auto-resolve their IDL from on-chain WASM, or manually via `idl import` for v1 programs (no embedded IDL section).
 
 ```bash
-# Import an IDL for a specific program (resolves codeId via RPC)
-vara-wallet idl import ./my-program.idl --program <programId>
-
-# Import for a known codeId — fully offline
-vara-wallet idl import ./my-program.idl --code-id 0x<hex>
+vara-wallet idl import <path.idl> (--code-id <hex> | --program <hex|ss58>)
+vara-wallet idl list
+vara-wallet idl remove <code-id>
+vara-wallet idl clear [--yes]
 ```
+
+- **`idl import`** seeds the cache with an out-of-band IDL. `--code-id` is fully offline; `--program` resolves `codeId` via RPC. Once imported, `call`/`discover`/`vft`/`dex` find the IDL automatically for that program's `codeId`.
+- **`idl list`** prints `[{ codeId, version, source, importedAt, idlSizeBytes }, ...]`. Empty cache returns `[]`. Corrupted entries surface as `{ codeId, error: 'corrupted', ... }` rows so a single bad file never crashes the listing.
+- **`idl remove <code-id>`** removes one entry. Idempotent: removing a non-existent entry returns `{ removed: false, codeId }` and exit 0.
+- **`idl clear`** (terraform-style) — bare invocation prints a `wouldRemove` preview without unlinking; `--yes` commits and prints `{ removed: N, path }`. Snapshot-then-unlink: ENOENT for entries removed by parallel writers between enumeration and unlink is swallowed.
 
 ### `vft` (Fungible Tokens)
 
@@ -245,14 +251,14 @@ Works out of the box with standard VFT programs — no `--idl` needed (bundled I
 vara-wallet vft info <tokenProgram> [--idl <path>]
 vara-wallet vft balance <tokenProgram> [account] [--idl <path>]
 vara-wallet vft allowance <tokenProgram> <owner> <spender> [--idl <path>]
-vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
-vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
-vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
-vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
-vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units raw|token] [--voucher <id>]
+vara-wallet vft transfer <tokenProgram> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft approve <tokenProgram> <spender> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft transfer-from <tokenProgram> <from> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft mint <tokenProgram> <to> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
+vara-wallet vft burn <tokenProgram> <from> <amount> [--idl <path>] [--units human|raw] [--voucher <id>]
 ```
 
-Use `--units token` to pass human-readable amounts (e.g., `1.5` → auto-converts using on-chain decimals). Default is `raw` (minimal units).
+`--units human` passes amounts using the token's declared decimals (e.g., `1.5` auto-converts via the on-chain `Decimals` query). Default is `raw` (minimal units, passthrough as bigint). The legacy `token` literal was renamed to `human` in 0.15.0 for cross-command consistency. `vft balance` and `vft allowance` safely return `'0'` when the underlying query is `opt u256` and the account has no row (was a `BigInt(null)` crash in 0.14.x).
 
 ### `dex` (DEX Trading)
 
@@ -263,18 +269,18 @@ Rivr DEX testnet factory: `0xaec14c514124fffa6c4b832ba7c12fa19e7fa663774c549c114
 ```bash
 vara-wallet dex pairs [--factory <addr>] [--limit <n>]
 vara-wallet dex pool <token0> <token1> [--factory <addr>]
-vara-wallet dex quote <tokenIn> <tokenOut> <amount> [--reverse] [--units raw|token]
+vara-wallet dex quote <tokenIn> <tokenOut> <amount> [--reverse] [--units human|raw]
 vara-wallet dex swap <tokenIn> <tokenOut> <amount> [--slippage <bps>] [--deadline <s>] [--exact-out] [--skip-approve] [--voucher <id>]
 vara-wallet dex add-liquidity <token0> <token1> <amount0> <amount1> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
 vara-wallet dex remove-liquidity <token0> <token1> <liquidity> [--slippage <bps>] [--deadline <s>] [--skip-approve] [--voucher <id>]
 ```
 
-Slippage is in basis points (100 = 1%, default). Swaps auto-approve input tokens unless `--skip-approve` is set. Use `--units token` to pass human-readable amounts.
+Slippage is in basis points (100 = 1%, default). Swaps auto-approve input tokens unless `--skip-approve` is set. Use `--units human` to pass amounts in the token's declared decimals (e.g. `1.5`); default is `raw` (minimal units).
 
 ### `voucher`
 
 ```bash
-vara-wallet voucher issue <spender> <value> [--units vara|raw] [--duration <blocks>] [--programs <ids>]
+vara-wallet voucher issue <spender> <value> [--units human|raw] [--duration <blocks>] [--programs <ids>]
 vara-wallet voucher list <account> [--program <id>]
 vara-wallet voucher revoke <spender> <voucherId>
 ```
@@ -313,7 +319,7 @@ Subscribe to on-chain events with NDJSON streaming and optional SQLite persisten
 
 ```bash
 vara-wallet subscribe blocks [--finalized]
-vara-wallet subscribe messages <programId> [--type <Service/Event | EventName>] [--from-block <n>] [--idl <path>] [--pallet-event] [--no-decode]
+vara-wallet subscribe messages <programId> [--event <Service/Event | EventName | pallet:Name>] [--from-block <n>] [--idl <path>] [--no-decode]
 vara-wallet subscribe mailbox <address>
 vara-wallet subscribe balance <address>
 vara-wallet subscribe transfers [--from <addr>] [--to <addr>]
@@ -325,7 +331,7 @@ vara-wallet subscribe program <programId>
 - `--timeout <seconds>` — exit after N seconds
 - `--no-persist` — stream only, skip SQLite persistence
 
-`subscribe messages` shares the IDL-aware filtering and decoding behavior described under `watch` above. The filter flag is named `--type` here (vs `--event` on `watch`), but accepts the same values: Gear pallet event names, qualified `Service/Event`, or bare Sails event names. `--pallet-event` and `--no-decode` work the same way.
+`subscribe messages` and `watch` share the IDL-aware filtering / decoding behavior. Both use `--event` (renamed from `--type` in 0.15.0 for consistency).
 
 ### `inbox`
 
@@ -350,12 +356,16 @@ vara-wallet events prune [--older-than <duration>]
 Stream program events as NDJSON. For persistent event capture with SQLite storage, see `subscribe` above.
 
 ```bash
-vara-wallet watch <programId> [--event <type>] [--idl <path>] [--pallet-event] [--no-decode]
+vara-wallet watch <programId> [--event <type>] [--idl <path>] [--no-decode]
 ```
 
-`--event` accepts both Gear pallet event names (`UserMessageSent`, `MessageQueued`, ...) and Sails events as `Service/Event` or bare `Event` (when unambiguous across services). Pallet vocabulary resolves to the legacy pallet path first so existing scripts keep working; ambiguous bare Sails names fail fast with `AMBIGUOUS_EVENT` listing the alternatives.
+`--event` accepts:
+- **Gear pallet event names** (`UserMessageSent`, `MessageQueued`, ...) — bare names that match the legacy pallet vocab always resolve to the pallet path, so existing scripts keep working.
+- **Qualified Sails events** as `Service/Event` — always unambiguous.
+- **Bare Sails event names** — succeed when exactly one service declares the event. Multiple-service collisions hard-fail with `AMBIGUOUS_EVENT` listing the alternatives.
+- **`pallet:<Name>` prefix** — explicitly forces pallet vocabulary even when an IDL is loaded. Replaces the old `--pallet-event` flag (removed in 0.15.0). Example: `--event pallet:UserMessageSent`.
 
-When an IDL is loaded (explicit `--idl` or auto-resolved from the on-chain WASM), each emitted `UserMessageSent` is augmented with a decoded `sails: { service, event, data }` block alongside the existing raw fields (`payload`, `source`, `destination`, ...) — additive, so consumers parsing raw NDJSON keep working. Use `--pallet-event` to force pallet-event resolution even with an IDL loaded; `--no-decode` disables the opportunistic IDL auto-load entirely.
+When an IDL is loaded (explicit `--idl` or auto-resolved from the on-chain WASM), each emitted `UserMessageSent` is augmented with a `decoded: { kind: 'sails', service, event, data }` block alongside the existing raw fields (`payload`, `source`, `destination`, ...) — additive, so consumers parsing raw NDJSON keep working. The `kind` discriminator future-proofs the surface for additional decoder types. (Renamed from `sails: {...}` in 0.15.0.) `--no-decode` disables the opportunistic IDL auto-load entirely.
 
 ### `encode` / `decode`
 
@@ -437,9 +447,12 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `WRONG_NETWORK` | Command not available on this network (e.g., faucet on mainnet) |
 | `INVALID_NETWORK` | Unknown `--network` value |
 | `INVALID_CONFIG_KEY` | Unknown config key passed to `config set/get` |
-| `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`, `--estimate` + `--dry-run`) |
+| `CONFLICTING_OPTIONS` | Mutually exclusive options used together (e.g., `--network` + `--ws`). Note: `--estimate` + `--dry-run` *compose* on `call` since 0.15.0 (no longer conflicting) |
 | `INVALID_ARGS_SOURCE` | `--args` and `--args-file` (or positional value + `--args-file` on `encode`) used together |
 | `STDIN_IS_TTY` | `--args-file -` used with no pipe attached |
+| `INVALID_UNITS` | `--units` value isn't `human` or `raw` (rejects legacy `vara` / `token` literals from pre-0.15) |
+| `PERMISSION_DENIED` | OS-level permission error (e.g. `idl clear --yes` on a read-only cache dir) |
+| `INVALID_CODE_ID` | `--code-id` argument isn't a 32-byte hex string |
 | `AMBIGUOUS_EVENT` | Bare Sails event name resolves to multiple services — qualify as `Service/Event` |
 | `FAUCET_ERROR` | Faucet request failed |
 | `PROGRAM_ERROR` | Sails program execution failed (panic/error) |
