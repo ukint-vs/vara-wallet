@@ -8,7 +8,7 @@ import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult } from '../utils';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, validateUnits } from '../utils';
 import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
 // ---------------------------------------------------------------------------
@@ -268,14 +268,9 @@ async function resolveTokenAmount(
   amount: string,
   units?: string,
 ): Promise<bigint> {
-  if (units !== undefined && units !== 'raw' && units !== 'human') {
-    throw new CliError(
-      `Invalid --units value: "${units}". Must be "raw" or "human".`,
-      'INVALID_UNITS',
-    );
-  }
+  const u = validateUnits(units);
 
-  if (units === 'human') {
+  if (u === 'human') {
     const decimals = await queryTokenDecimals(api, tokenAddress);
     if (decimals === null) {
       throw new CliError(

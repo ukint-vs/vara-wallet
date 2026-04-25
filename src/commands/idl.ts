@@ -71,7 +71,7 @@ export function registerIdlCommand(program: Command): void {
         // it hits the cache filename. Without this, `--code-id "../../etc/foo"`
         // would escape the cache directory (mode 0600 on the file, but outside
         // ~/.vara-wallet/idl-cache/ — still a path-traversal surface).
-        if (!/^(0x)?[0-9a-fA-F]{64}$/.test(options.codeId)) {
+        if (!CODE_ID_HEX_RE.test(options.codeId)) {
           throw new CliError(
             `Invalid --code-id: expected 32-byte hex string (0x-prefixed or bare), got "${options.codeId}"`,
             'INVALID_CODE_ID',

@@ -7,6 +7,7 @@ import {
   installEpipeHandler,
   formatUserMessageSent,
   formatUserMessageSentMaybeDecoded,
+  matchesSailsFilter,
   resolveSubscribeFilter,
 } from './subscribe/shared';
 
@@ -80,17 +81,7 @@ export function registerWatchCommand(program: Command): void {
             { from: programIdHex },
             (event) => {
               const formatted = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
-              const decodedBlock = (formatted as {
-                decoded?: { kind: string; service: string; event: string };
-              }).decoded;
-              if (
-                !decodedBlock ||
-                decodedBlock.kind !== 'sails' ||
-                decodedBlock.service !== filter.service ||
-                decodedBlock.event !== filter.event
-              ) {
-                return;
-              }
+              if (!matchesSailsFilter(formatted, filter)) return;
               outputNdjson({ event: 'UserMessageSent', ...formatted, timestamp: Date.now() });
             },
           );

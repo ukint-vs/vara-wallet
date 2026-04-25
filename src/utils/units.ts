@@ -93,15 +93,29 @@ export function toMinimalUnits(amount: string, decimals: number): bigint {
  * Imports `CliError` directly from `./errors` to keep the helper
  * usable from any utils consumer without circular dependency risk.
  */
-export function resolveAmount(amount: string, units?: string): bigint {
-  if (units !== undefined && units !== 'human' && units !== 'raw') {
+export type UnitsFlag = 'human' | 'raw';
+
+/**
+ * Validate the `--units` value against the unified vocabulary.
+ * Returns the typed flag (or `undefined` for omitted) and throws
+ * `INVALID_UNITS` for everything else — including the legacy literals
+ * `vara` / `token` from pre-0.15. Single source of truth used by
+ * native (`resolveAmount`), VFT (`resolveVftAmount`), and DEX
+ * (`resolveTokenAmount`) so future vocabulary changes are one edit.
+ */
+export function validateUnits(units: string | undefined): UnitsFlag | undefined {
+  if (units === undefined) return undefined;
+  if (units !== 'human' && units !== 'raw') {
     throw new CliError(
       `Invalid --units value: "${units}". Must be "human" or "raw".`,
       'INVALID_UNITS',
     );
   }
-  if (units === 'raw') {
-    return BigInt(amount);
-  }
+  return units;
+}
+
+export function resolveAmount(amount: string, units?: string): bigint {
+  const u = validateUnits(units);
+  if (u === 'raw') return BigInt(amount);
   return varaToMinimal(amount);
 }

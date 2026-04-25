@@ -259,6 +259,18 @@ export function formatUserMessageSent(event: UserMessageSent): Record<string, un
 }
 
 /**
+ * Typed shape of the decoded NDJSON augmentation block. The `kind`
+ * discriminator is a literal so consumers can switch on it; future
+ * decoder types (e.g. EVM events) sit alongside `'sails'`.
+ */
+export type DecodedBlock = {
+  kind: 'sails';
+  service: string;
+  event: string;
+  data: unknown;
+};
+
+/**
  * Decode a `UserMessageSent` against an optional Sails IDL and return the
  * existing raw shape, additively augmented with
  * `decoded: { kind: 'sails', service, event, data }` when a decode
@@ -285,7 +297,32 @@ export function formatUserMessageSentMaybeDecoded(
   if (sourceHex !== programIdHex) return raw;
   const decoded = decodeSailsEvent(sails, event);
   if (!decoded) return raw;
-  return { ...raw, decoded: { kind: 'sails', service: decoded.service, event: decoded.event, data: decoded.data } };
+  const decodedBlock: DecodedBlock = {
+    kind: 'sails',
+    service: decoded.service,
+    event: decoded.event,
+    data: decoded.data,
+  };
+  return { ...raw, decoded: decodedBlock };
+}
+
+/**
+ * Returns true when the formatted message has a Sails-decoded block
+ * matching the given filter. Used by both `watch` and
+ * `subscribe messages` to decide whether to emit a UserMessageSent
+ * event after the IDL-aware filter is set.
+ */
+export function matchesSailsFilter(
+  formatted: Record<string, unknown>,
+  filter: { service: string; event: string },
+): boolean {
+  const block = (formatted as { decoded?: DecodedBlock }).decoded;
+  return (
+    block !== undefined &&
+    block.kind === 'sails' &&
+    block.service === filter.service &&
+    block.event === filter.event
+  );
 }
 
 /**
@@ -315,14 +352,16 @@ export type ResolvedSubscribeFilter =
   | { kind: 'sails'; service: string; event: string }
   | { kind: 'pallet'; event: GearEventName };
 
+/** `pallet:Foo` → forces pallet vocab. Replaces the dropped `--pallet-event` flag. */
+export const PALLET_PREFIX = 'pallet:';
+
 export function resolveSubscribeFilter(
   name: string,
   sails: LoadedSails | null,
 ): ResolvedSubscribeFilter {
   // `pallet:` prefix forces pallet vocab regardless of IDL state.
-  // Replaces the old `--pallet-event` boolean flag with inline syntax.
-  if (name.startsWith('pallet:')) {
-    return { kind: 'pallet', event: validateEventName(name.slice('pallet:'.length)) };
+  if (name.startsWith(PALLET_PREFIX)) {
+    return { kind: 'pallet', event: validateEventName(name.slice(PALLET_PREFIX.length)) };
   }
   // Gear-first precedence — bare names that match the legacy pallet vocab
   // always resolve to the pallet path. Anything else would silently break

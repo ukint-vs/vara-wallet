@@ -15,6 +15,7 @@ import {
   validateFromBlock,
   formatUserMessageSent,
   formatUserMessageSentMaybeDecoded,
+  matchesSailsFilter,
   resolveSubscribeFilter,
 } from './shared';
 
@@ -109,17 +110,7 @@ export function registerMessagesCommand(parent: Command): void {
               { from: programIdHex },
               safeCallback((event) => {
                 const formatted = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
-                const decodedBlock = (formatted as {
-                  decoded?: { kind: string; service: string; event: string };
-                }).decoded;
-                if (
-                  !decodedBlock ||
-                  decodedBlock.kind !== 'sails' ||
-                  decodedBlock.service !== filter.service ||
-                  decodedBlock.event !== filter.event
-                ) {
-                  return;
-                }
+                if (!matchesSailsFilter(formatted, filter)) return;
                 const data = {
                   type: 'message' as const,
                   event: 'UserMessageSent',
