@@ -79,12 +79,19 @@ export function registerWatchCommand(program: Command): void {
           unsub = await api.gearEvents.subscribeToUserMessageSentByActor(
             { from: programIdHex },
             (event) => {
-              const decoded = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
-              const sailsBlock = (decoded as { sails?: { service: string; event: string } }).sails;
-              if (!sailsBlock || sailsBlock.service !== filter.service || sailsBlock.event !== filter.event) {
+              const formatted = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
+              const decodedBlock = (formatted as {
+                decoded?: { kind: string; service: string; event: string };
+              }).decoded;
+              if (
+                !decodedBlock ||
+                decodedBlock.kind !== 'sails' ||
+                decodedBlock.service !== filter.service ||
+                decodedBlock.event !== filter.event
+              ) {
                 return;
               }
-              outputNdjson({ event: 'UserMessageSent', ...decoded, timestamp: Date.now() });
+              outputNdjson({ event: 'UserMessageSent', ...formatted, timestamp: Date.now() });
             },
           );
         }

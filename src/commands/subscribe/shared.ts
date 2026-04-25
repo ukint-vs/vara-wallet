@@ -260,15 +260,19 @@ export function formatUserMessageSent(event: UserMessageSent): Record<string, un
 
 /**
  * Decode a `UserMessageSent` against an optional Sails IDL and return the
- * existing raw shape, additively augmented with `sails: {service, event,
- * data}` when a decode succeeds. NEVER renames or removes existing fields
- * — backward-compat on the wire is the contract.
+ * existing raw shape, additively augmented with
+ * `decoded: { kind: 'sails', service, event, data }` when a decode
+ * succeeds. NEVER renames or removes existing raw fields.
+ *
+ * The `kind: 'sails'` discriminator future-proofs the surface so a second
+ * decoder type (e.g. EVM events) can sit alongside without renaming the
+ * top-level field again. Replaces the 0.14.x `sails: {...}` shape.
  *
  * `sails-js`'s own `events[E].is()` only checks destination + payload
  * prefix. So we MUST pre-filter by `message.source === programIdHex`
  * here; otherwise an unrelated program that happens to share the
  * service hash + event id would get its events spuriously decoded
- * against this IDL (Codex finding #2).
+ * against this IDL.
  */
 export function formatUserMessageSentMaybeDecoded(
   event: UserMessageSent,
@@ -281,7 +285,7 @@ export function formatUserMessageSentMaybeDecoded(
   if (sourceHex !== programIdHex) return raw;
   const decoded = decodeSailsEvent(sails, event);
   if (!decoded) return raw;
-  return { ...raw, sails: { service: decoded.service, event: decoded.event, data: decoded.data } };
+  return { ...raw, decoded: { kind: 'sails', service: decoded.service, event: decoded.event, data: decoded.data } };
 }
 
 /**

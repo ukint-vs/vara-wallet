@@ -108,24 +108,31 @@ export function registerMessagesCommand(parent: Command): void {
             const unsub = await api.gearEvents.subscribeToUserMessageSentByActor(
               { from: programIdHex },
               safeCallback((event) => {
-                const decoded = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
-                const sailsBlock = (decoded as { sails?: { service: string; event: string } }).sails;
-                if (!sailsBlock || sailsBlock.service !== filter.service || sailsBlock.event !== filter.event) {
+                const formatted = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
+                const decodedBlock = (formatted as {
+                  decoded?: { kind: string; service: string; event: string };
+                }).decoded;
+                if (
+                  !decodedBlock ||
+                  decodedBlock.kind !== 'sails' ||
+                  decodedBlock.service !== filter.service ||
+                  decodedBlock.event !== filter.event
+                ) {
                   return;
                 }
                 const data = {
                   type: 'message' as const,
                   event: 'UserMessageSent',
-                  ...decoded,
+                  ...formatted,
                   timestamp: Date.now(),
                 };
 
                 emitAndPersist(data, persist, {
                   type: 'message',
-                  event_id: decoded.messageId as string,
+                  event_id: formatted.messageId as string,
                   data,
-                  source: decoded.source as string,
-                  destination: decoded.destination as string,
+                  source: formatted.source as string,
+                  destination: formatted.destination as string,
                   program_id: programIdHex,
                 });
 
