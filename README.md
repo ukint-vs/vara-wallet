@@ -155,7 +155,7 @@ vara-wallet node info
 
 ```bash
 vara-wallet balance [address]
-vara-wallet transfer <to> <amount> [--units vara|raw]
+vara-wallet transfer <to> <amount> [--units human|raw]
 vara-wallet transfer <to> --all
 ```
 
@@ -164,9 +164,9 @@ vara-wallet transfer <to> --all
 ### `message`
 
 ```bash
-vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>] [--voucher <id>]
-vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--metadata <path>] [--voucher <id>]
-vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units vara|raw] [--origin <addr>] [--at <blockHash>]
+vara-wallet message send <destination> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units human|raw] [--metadata <path>] [--voucher <id>]
+vara-wallet message reply <messageId> [--payload <hex>] [--gas-limit <n>] [--value <v>] [--units human|raw] [--metadata <path>] [--voucher <id>]
+vara-wallet message calculate-reply <programId> [--payload <hex>] [--value <v>] [--units human|raw] [--origin <addr>] [--at <blockHash>]
 ```
 
 Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor (program, user, wallet). Use `--value` to transfer VARA tokens alongside a message. Use `--voucher <id>` to pay for the message using a voucher instead of the sender's balance.
@@ -174,8 +174,8 @@ Gas is auto-calculated if `--gas-limit` is omitted. Destination can be any actor
 ### `program`
 
 ```bash
-vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
-vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units vara|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
+vara-wallet program upload <wasm> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units human|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
+vara-wallet program deploy <codeId> [--payload <hex>] [--idl <path>] [--init <name>] [--args <json> | --args-file <path>] [--gas-limit <n>] [--value <v>] [--units human|raw] [--salt <hex>] [--metadata <path>] [--dry-run]
 vara-wallet program info <programId>
 vara-wallet program list [--count <n>] [--all]
 ```

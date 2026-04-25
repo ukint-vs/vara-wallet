@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
-import * as path from 'path';
 import { getApi } from '../services/api';
 import {
   writeCachedIdl,
@@ -153,7 +152,9 @@ export function registerIdlCommand(program: Command): void {
 
       let removed = 0;
       for (const entry of entries) {
-        const file = path.join(dir, `${entry.codeId}.cache.json`);
+        // Reuse getIdlEntryPath so the cache filename schema is single-sourced
+        // in idl-cache.ts (was: inline `${codeId}.cache.json` template).
+        const file = getIdlEntryPath(entry.codeId);
         try {
           fs.unlinkSync(file);
           removed++;

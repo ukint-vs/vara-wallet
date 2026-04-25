@@ -1,3 +1,5 @@
+import { CliError } from './errors';
+
 const VARA_DECIMALS = 12;
 const MULTIPLIER = BigInt(10 ** VARA_DECIMALS);
 
@@ -91,8 +93,6 @@ export function toMinimalUnits(amount: string, decimals: number): bigint {
  * Imports `CliError` directly from `./errors` to keep the helper
  * usable from any utils consumer without circular dependency risk.
  */
-import { CliError } from './errors';
-
 export function resolveAmount(amount: string, units?: string): bigint {
   if (units !== undefined && units !== 'human' && units !== 'raw') {
     throw new CliError(
