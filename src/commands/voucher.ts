@@ -12,7 +12,7 @@ export function registerVoucherCommand(program: Command): void {
     .description('Issue a voucher for a spender')
     .argument('<spender>', 'spender address (hex or SS58)')
     .argument('<value>', 'voucher value (in VARA)')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--duration <blocks>', 'voucher duration in blocks')
     .option('--programs <ids>', 'comma-separated program IDs to restrict')
     .action(async (spender: string, value: string, options: {
@@ -23,8 +23,7 @@ export function registerVoucherCommand(program: Command): void {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const amount = resolveAmount(value, isRaw);
+      const amount = resolveAmount(value, options.units);
 
       const duration = options.duration ? parseInt(options.duration, 10) : undefined;
       const programs = options.programs

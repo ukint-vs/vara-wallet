@@ -87,19 +87,22 @@ describe('formatUserMessageSentMaybeDecoded', () => {
     expect(out.payload).toMatch(/^0x/);
     expect(out.value).toBe('0');
     expect(out.details).toBeNull();
-    // Sails block appended.
-    expect(out.sails).toEqual({ service: 'Walker', event: 'StepCount', data: 42 });
+    // Decoded block appended (0.15 shape: decoded.kind === 'sails').
+    expect(out.decoded).toEqual({ kind: 'sails', service: 'Walker', event: 'StepCount', data: 42 });
+    // Old top-level sails: field is gone (renamed for forward-compat).
+    expect(out.sails).toBeUndefined();
   });
 
-  it('omits sails: block when no IDL is loaded (raw passthrough)', () => {
+  it('omits decoded block when no IDL is loaded (raw passthrough)', () => {
     const event = buildStepCountUms(sails, 42, PROGRAM_ID);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const out = formatUserMessageSentMaybeDecoded(event as any, null, PROGRAM_ID);
+    expect(out.decoded).toBeUndefined();
     expect(out.sails).toBeUndefined();
     expect(out.payload).toMatch(/^0x/);
   });
 
-  it('omits sails: block when source !== programId (Codex finding #2 — pre-filter)', () => {
+  it('omits decoded block when source !== programId (pre-filter — events[E].is() only checks destination + payload prefix)', () => {
     // Same valid Sails payload, but the message's source is OTHER_PROGRAM.
     // sails-js's events[E].is() would still return true (it only checks
     // destination + payload prefix), so we must skip decode at the
@@ -107,6 +110,7 @@ describe('formatUserMessageSentMaybeDecoded', () => {
     const event = buildStepCountUms(sails, 42, OTHER_PROGRAM);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const out = formatUserMessageSentMaybeDecoded(event as any, sails, PROGRAM_ID);
+    expect(out.decoded).toBeUndefined();
     expect(out.sails).toBeUndefined();
     expect(out.source).toBe(OTHER_PROGRAM);
   });

@@ -339,6 +339,13 @@ async function resolveIdl(
  *  Malformed WASM bytes surface as an `IDL_PARSE_ERROR` (chain-consistency
  *  bug worth flagging rather than silently falling back).
  */
+export async function _tryExtractFromChainForTests(
+  api: GearApi,
+  codeId: string,
+): Promise<string | null> {
+  return tryExtractFromChain(api, codeId);
+}
+
 async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string | null> {
   verbose(`Fetching original WASM from chain for codeId ${codeId}...`);
   let option: Option<Bytes>;
@@ -352,7 +359,12 @@ async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string
     verbose(`originalCodeStorage returned None for codeId ${codeId}`);
     return null;
   }
-  const bytes = option.unwrap().toU8a();
+  // .toU8a() on a Bytes codec includes the SCALE compact-length prefix.
+  // We want the raw inner WASM bytes (starting with the 0061736d magic),
+  // so pass isBare=true. Without this, the WASM-magic check downstream
+  // fails on every program, turning "no sails:idl section" into a
+  // misleading IDL_PARSE_ERROR.
+  const bytes = option.unwrap().toU8a(true);
   if (bytes.length > MAX_WASM_BYTES) {
     verbose(`WASM size ${bytes.length} exceeds MAX_WASM_BYTES; refusing to parse`);
     return null;

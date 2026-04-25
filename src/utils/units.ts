@@ -1,3 +1,5 @@
+import { CliError } from './errors';
+
 const VARA_DECIMALS = 12;
 const MULTIPLIER = BigInt(10 ** VARA_DECIMALS);
 
@@ -72,13 +74,48 @@ export function toMinimalUnits(amount: string, decimals: number): bigint {
 }
 
 /**
- * Resolve amount based on --units flag.
- * Default: treat as VARA (multiply by 10^12).
- * With --units raw: passthrough as-is.
+ * Resolve a native VARA amount based on the --units flag.
+ *
+ * Vocabulary (unified in 0.15.0):
+ *   - `human` (default): multiply by 10^12 (VARA → minimal units).
+ *   - `raw`            : pass through as a bigint.
+ *
+ * Anything else throws INVALID_UNITS. The legacy `vara` literal (0.10.0
+ * vocabulary) is intentionally rejected — npm registry was on 0.10.0
+ * when this rename landed, and the audience for the new vocabulary is
+ * post-0.10.0 only.
+ *
+ * For VFT / DEX commands the same `human|raw` vocabulary applies but
+ * `human` means "use the token's declared decimals", not VARA's 12.
+ * Those resolvers live in their respective command files; this helper
+ * is native-VARA only.
+ *
+ * Imports `CliError` directly from `./errors` to keep the helper
+ * usable from any utils consumer without circular dependency risk.
  */
-export function resolveAmount(amount: string, unitsRaw?: boolean): bigint {
-  if (unitsRaw) {
-    return BigInt(amount);
+export type UnitsFlag = 'human' | 'raw';
+
+/**
+ * Validate the `--units` value against the unified vocabulary.
+ * Returns the typed flag (or `undefined` for omitted) and throws
+ * `INVALID_UNITS` for everything else — including the legacy literals
+ * `vara` / `token` from pre-0.15. Single source of truth used by
+ * native (`resolveAmount`), VFT (`resolveVftAmount`), and DEX
+ * (`resolveTokenAmount`) so future vocabulary changes are one edit.
+ */
+export function validateUnits(units: string | undefined): UnitsFlag | undefined {
+  if (units === undefined) return undefined;
+  if (units !== 'human' && units !== 'raw') {
+    throw new CliError(
+      `Invalid --units value: "${units}". Must be "human" or "raw".`,
+      'INVALID_UNITS',
+    );
   }
+  return units;
+}
+
+export function resolveAmount(amount: string, units?: string): bigint {
+  const u = validateUnits(units);
+  if (u === 'raw') return BigInt(amount);
   return varaToMinimal(amount);
 }

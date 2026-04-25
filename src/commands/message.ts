@@ -61,7 +61,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--payload-ascii <text>', 'message payload as plain text (converted to hex)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with message (in VARA)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (destination: string, options: {
@@ -76,8 +76,7 @@ export function registerMessageCommand(program: Command): void {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const value = resolveAmount(options.value, isRaw);
+      const value = resolveAmount(options.value, options.units);
 
       let meta: ProgramMetadata | undefined;
       if (options.metadata) {
@@ -151,7 +150,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--payload-ascii <text>', 'reply payload as plain text (converted to hex)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send with reply (in VARA)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--metadata <path>', 'path to .meta.txt file for encoding')
     .option('--voucher <id>', 'voucher ID to pay for the message')
     .action(async (messageId: string, options: {
@@ -166,8 +165,7 @@ export function registerMessageCommand(program: Command): void {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const value = resolveAmount(options.value, isRaw);
+      const value = resolveAmount(options.value, options.units);
 
       let meta: ProgramMetadata | undefined;
       if (options.metadata) {
@@ -232,7 +230,7 @@ export function registerMessageCommand(program: Command): void {
     .option('--payload <payload>', 'message payload (hex 0x... or JSON string)', '0x')
     .option('--payload-ascii <text>', 'message payload as plain text (converted to hex)')
     .option('--value <value>', 'value to simulate (in VARA)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--origin <address>', 'origin address for the calculation (hex or SS58)')
     .option('--at <blockHash>', 'block hash to query state at')
     .action(async (programId: string, options: {
@@ -245,8 +243,7 @@ export function registerMessageCommand(program: Command): void {
     }) => {
       const opts = program.optsWithGlobals() as AccountOptions & { ws?: string };
       const api = await getApi(opts.ws);
-      const isRaw = options.units === 'raw';
-      const value = resolveAmount(options.value, isRaw);
+      const value = resolveAmount(options.value, options.units);
 
       // Resolve origin - use provided address or account
       let origin: `0x${string}`;

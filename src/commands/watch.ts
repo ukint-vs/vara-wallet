@@ -7,6 +7,7 @@ import {
   installEpipeHandler,
   formatUserMessageSent,
   formatUserMessageSentMaybeDecoded,
+  matchesSailsFilter,
   resolveSubscribeFilter,
 } from './subscribe/shared';
 
@@ -15,14 +16,12 @@ export function registerWatchCommand(program: Command): void {
     .command('watch')
     .description('Stream program events as NDJSON')
     .argument('<programId>', 'program ID to watch (hex or SS58)')
-    .option('--event <type>', 'event type to filter (UserMessageSent, MessageQueued, or Service/Event for Sails)')
+    .option('--event <type>', 'event filter: Gear pallet name (UserMessageSent), Sails Service/Event, bare Sails event, or pallet:Name to force pallet vocab')
     .option('--idl <path>', 'path to local IDL file (forces Sails-aware decode)')
-    .option('--pallet-event', 'force Gear pallet event resolution even when an IDL is loaded')
     .option('--no-decode', 'disable opportunistic IDL auto-load (raw output only)')
     .action(async (programId: string, options: {
       event?: string;
       idl?: string;
-      palletEvent?: boolean;
       decode?: boolean;
     }) => {
       const opts = program.optsWithGlobals() as { ws?: string };
@@ -54,7 +53,7 @@ export function registerWatchCommand(program: Command): void {
       let unsub: () => void;
 
       if (options.event) {
-        const filter = resolveSubscribeFilter(options.event, sails, options.palletEvent === true);
+        const filter = resolveSubscribeFilter(options.event, sails);
 
         if (filter.kind === 'pallet') {
           // Pallet event path — back-compat with the original behavior.
@@ -81,12 +80,9 @@ export function registerWatchCommand(program: Command): void {
           unsub = await api.gearEvents.subscribeToUserMessageSentByActor(
             { from: programIdHex },
             (event) => {
-              const decoded = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
-              const sailsBlock = (decoded as { sails?: { service: string; event: string } }).sails;
-              if (!sailsBlock || sailsBlock.service !== filter.service || sailsBlock.event !== filter.event) {
-                return;
-              }
-              outputNdjson({ event: 'UserMessageSent', ...decoded, timestamp: Date.now() });
+              const formatted = formatUserMessageSentMaybeDecoded(event, sails, programIdHex);
+              if (!matchesSailsFilter(formatted, filter)) return;
+              outputNdjson({ event: 'UserMessageSent', ...formatted, timestamp: Date.now() });
             },
           );
         }

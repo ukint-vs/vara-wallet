@@ -112,7 +112,7 @@ export function registerProgramCommand(program: Command): void {
     .option('--args-file <path>', 'read constructor --args JSON from file (use - for stdin, requires --idl)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send (in VARA)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
     .option('--metadata <path>', 'path to .meta.txt file')
     .option('--dry-run', 'encode the constructor payload and exit without uploading (no account required)')
@@ -157,8 +157,7 @@ export function registerProgramCommand(program: Command): void {
 
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const value = resolveAmount(options.value, isRaw);
+      const value = resolveAmount(options.value, options.units);
 
       const code = fs.readFileSync(wasmPath);
 
@@ -219,7 +218,7 @@ export function registerProgramCommand(program: Command): void {
     .option('--args-file <path>', 'read constructor --args JSON from file (use - for stdin, requires --idl)')
     .option('--gas-limit <gas>', 'gas limit (auto-calculated if not set)')
     .option('--value <value>', 'value to send (in VARA)', '0')
-    .option('--units <units>', 'amount units: vara (default) or raw')
+    .option('--units <units>', 'amount units: human (default, = VARA) or raw')
     .option('--salt <salt>', 'salt for program address (hex)')
     .option('--metadata <path>', 'path to .meta.txt file')
     .option('--dry-run', 'encode the constructor payload and exit without creating (no account required)')
@@ -260,8 +259,7 @@ export function registerProgramCommand(program: Command): void {
 
       const api = await getApi(opts.ws);
       const account = await resolveAccount(opts);
-      const isRaw = options.units === 'raw';
-      const value = resolveAmount(options.value, isRaw);
+      const value = resolveAmount(options.value, options.units);
 
       let meta: ProgramMetadata | undefined;
       if (options.metadata) {
