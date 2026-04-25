@@ -55,6 +55,31 @@ function runDiscover(idlPath, label) {
   );
 }
 
+/**
+ * Run the bundled CLI with a freshly-isolated VARA_WALLET_DIR so the IDL
+ * cache subcommands (idl import/list/remove/clear) operate on an empty
+ * sandbox per invocation. Returns parsed --json output or exits non-zero.
+ */
+function runCli(args, label, walletDir) {
+  const result = spawnSync(process.execPath, [BUNDLE, ...args, '--json'], {
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, VARA_WALLET_DIR: walletDir },
+  });
+  if (result.status !== 0) {
+    console.error(`smoke[${label}] FAILED — exit ${result.status}`);
+    if (result.stderr) console.error('stderr:', result.stderr.slice(0, 2000));
+    if (result.stdout) console.error('stdout:', result.stdout.slice(0, 2000));
+    process.exit(1);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    console.error(`smoke[${label}] FAILED — non-JSON output: ${result.stdout.slice(0, 500)}`);
+    process.exit(1);
+  }
+}
+
 const tmp = mkdtempSync(join(tmpdir(), 'vara-wallet-smoke-'));
 try {
   // v1: extract the first bundled VFT IDL and write it to a temp file.
@@ -78,6 +103,74 @@ try {
     process.exit(1);
   }
   runDiscover(v2Path, 'v2');
+
+  // idl list / import / remove / clear — happy path against the bundled
+  // CLI. Catches bundling regressions (esbuild tree-shaking idl-cache
+  // exports, export renames) that unit tests run against source can't see.
+  // Each call uses a private VARA_WALLET_DIR under tmp/ so the user's
+  // real cache is untouched.
+  const walletDir = join(tmp, 'wallet-home');
+  const FAKE_CODE_ID = '0x' + 'ab'.repeat(32);
+
+  const listEmpty = runCli(['idl', 'list'], 'idl-list-empty', walletDir);
+  if (!Array.isArray(listEmpty) || listEmpty.length !== 0) {
+    console.error(`smoke[idl-list-empty] FAILED — expected [], got ${JSON.stringify(listEmpty)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-list-empty] OK — empty cache returns []');
+
+  const imported = runCli(
+    ['idl', 'import', v2Path, '--code-id', FAKE_CODE_ID],
+    'idl-import',
+    walletDir,
+  );
+  if (imported?.source !== 'import' || !imported?.codeId) {
+    console.error(`smoke[idl-import] FAILED — unexpected shape: ${JSON.stringify(imported)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-import] OK — imported v2 fixture');
+
+  const listOne = runCli(['idl', 'list'], 'idl-list-one', walletDir);
+  if (!Array.isArray(listOne) || listOne.length !== 1 || listOne[0].source !== 'import') {
+    console.error(`smoke[idl-list-one] FAILED — expected 1 import entry, got ${JSON.stringify(listOne)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-list-one] OK — 1 entry visible after import');
+
+  const removed = runCli(
+    ['idl', 'remove', FAKE_CODE_ID],
+    'idl-remove',
+    walletDir,
+  );
+  if (removed?.removed !== true) {
+    console.error(`smoke[idl-remove] FAILED — expected { removed: true }, got ${JSON.stringify(removed)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-remove] OK — entry removed');
+
+  // Re-import to test clear --yes against a populated cache.
+  runCli(['idl', 'import', v2Path, '--code-id', FAKE_CODE_ID], 'idl-reimport', walletDir);
+
+  const preview = runCli(['idl', 'clear'], 'idl-clear-preview', walletDir);
+  if (!Array.isArray(preview?.wouldRemove) || preview.wouldRemove.length !== 1) {
+    console.error(`smoke[idl-clear-preview] FAILED — expected 1 entry in wouldRemove, got ${JSON.stringify(preview)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-clear-preview] OK — preview shows 1 entry');
+
+  const cleared = runCli(['idl', 'clear', '--yes'], 'idl-clear-commit', walletDir);
+  if (cleared?.removed !== 1) {
+    console.error(`smoke[idl-clear-commit] FAILED — expected { removed: 1 }, got ${JSON.stringify(cleared)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-clear-commit] OK — entry cleared');
+
+  const listFinal = runCli(['idl', 'list'], 'idl-list-final', walletDir);
+  if (!Array.isArray(listFinal) || listFinal.length !== 0) {
+    console.error(`smoke[idl-list-final] FAILED — expected [] after clear, got ${JSON.stringify(listFinal)}`);
+    process.exit(1);
+  }
+  console.log('smoke[idl-list-final] OK — cache empty after clear');
 
   console.log('smoke: all checks passed');
 } finally {
