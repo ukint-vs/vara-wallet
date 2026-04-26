@@ -27,11 +27,23 @@ export function registerMetadataCommand(program: Command): void {
       output(listMetadataCache());
     });
 
+  // terraform-style: bare invocation previews; --yes commits. Mirrors `idl clear`.
   metadata
     .command('clear')
-    .description('Remove all cached runtime metadata entries')
-    .action(() => {
+    .description('Remove all cached runtime metadata entries (terraform-style: bare invocation previews; --yes commits)')
+    .option('--yes', 'actually remove the entries (without --yes, only previews what would be removed)')
+    .action((options: { yes?: boolean }) => {
+      const cacheDir = getMetadataCacheDir();
+      if (!options.yes) {
+        const wouldRemove = listMetadataCache().map((e) => e.key);
+        output({
+          wouldRemove,
+          cacheDir,
+          hint: 'vara-wallet metadata clear --yes to proceed',
+        });
+        return;
+      }
       const result = clearMetadataCache();
-      output({ ...result, cacheDir: getMetadataCacheDir() });
+      output({ ...result, cacheDir });
     });
 }

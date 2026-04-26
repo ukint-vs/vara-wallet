@@ -2,7 +2,7 @@ import { GearApi } from '@gear-js/api';
 import { verbose, CliError, errorMessage, markStage } from '../utils';
 import { readConfig } from './config';
 import { SmoldotProvider } from './light-client';
-import { clearMetadataCache, loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
+import { buildCacheKey, clearMetadataCache, loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
 
 let apiPromise: Promise<GearApi> | null = null;
 let apiInstance: GearApi | null = null;
@@ -22,14 +22,16 @@ const DEFAULT_ENDPOINT = 'wss://rpc.vara.network';
  * metadata blob (vs. a network/timeout error)? Used to gate the "clear
  * cache and retry without it" recovery path. Substring match because the
  * error path crosses several layers of wrapping inside polkadot/api and
- * the surface message is the only stable handle.
+ * the surface message is the only stable handle. Kept narrow on purpose
+ * — `'unable to initialize the api'` was tempting but matches genesis-fetch
+ * and provider-init failures too, which would clear a perfectly good cache
+ * on a transient network error.
  */
 function isMetadataError(err: unknown): boolean {
   const msg = errorMessage(err).toLowerCase();
   return (
     msg.includes('magicnumber') ||
     msg.includes('magic number') ||
-    msg.includes('unable to initialize the api') ||
     msg.includes('unable to decode metadata') ||
     msg.includes('metadata version')
   );
@@ -108,7 +110,7 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
         }
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);
-        const key = `${api.genesisHash.toHex()}-${api.runtimeVersion.specVersion.toString()}`;
+        const key = buildCacheKey(api.genesisHash.toHex(), api.runtimeVersion.specVersion.toString());
         const cacheHit = cachedMetadata[key] !== undefined;
         markStage('connect', { spec: api.specVersion, cacheHit });
         // Best-effort cache write. Idempotent; only writes if missing.
