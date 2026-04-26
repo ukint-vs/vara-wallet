@@ -1,8 +1,8 @@
 import { GearApi } from '@gear-js/api';
-import { verbose, CliError, markStage } from '../utils';
+import { verbose, CliError, errorMessage, markStage } from '../utils';
 import { readConfig } from './config';
 import { SmoldotProvider } from './light-client';
-import { loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
+import { clearMetadataCache, loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
 
 let apiPromise: Promise<GearApi> | null = null;
 let apiInstance: GearApi | null = null;
@@ -16,6 +16,24 @@ export function isShuttingDown(): boolean {
 }
 
 const DEFAULT_ENDPOINT = 'wss://rpc.vara.network';
+
+/**
+ * Heuristic: does this error look like @polkadot/api rejected our cached
+ * metadata blob (vs. a network/timeout error)? Used to gate the "clear
+ * cache and retry without it" recovery path. Substring match because the
+ * error path crosses several layers of wrapping inside polkadot/api and
+ * the surface message is the only stable handle.
+ */
+function isMetadataError(err: unknown): boolean {
+  const msg = errorMessage(err).toLowerCase();
+  return (
+    msg.includes('magicnumber') ||
+    msg.includes('magic number') ||
+    msg.includes('unable to initialize the api') ||
+    msg.includes('unable to decode metadata') ||
+    msg.includes('metadata version')
+  );
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout;
@@ -63,11 +81,31 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       const cachedMetadata = loadMetadataCache();
       const cachedKeyCount = Object.keys(cachedMetadata).length;
       markStage('connect_begin', { endpoint, cachedMetadataKeys: cachedKeyCount });
-      const connectPromise = withTimeout(
-        GearApi.create({ providerAddress: endpoint, metadata: cachedMetadata }),
-        CONNECTION_TIMEOUT_MS,
-        `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
-      ).then((api) => {
+      const connectPromise = (async (): Promise<GearApi> => {
+        const attemptConnect = (metadata: Record<string, `0x${string}`>): Promise<GearApi> =>
+          withTimeout(
+            GearApi.create({ providerAddress: endpoint, metadata }),
+            CONNECTION_TIMEOUT_MS,
+            `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
+          );
+        let api: GearApi;
+        try {
+          api = await attemptConnect(cachedMetadata);
+        } catch (err) {
+          // Cached metadata that passed magic-byte validation but trips
+          // @polkadot/api's deeper Metadata wrap (e.g. version/struct
+          // mismatch in a future polkadot/api). Clear and retry once
+          // without cache so the user isn't stuck with a poisoned entry.
+          if (cachedKeyCount > 0 && isMetadataError(err)) {
+            verbose(
+              `metadata-cache: connect failed with cached metadata (${errorMessage(err)}); clearing cache and retrying`,
+            );
+            clearMetadataCache();
+            api = await attemptConnect({});
+          } else {
+            throw err;
+          }
+        }
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);
         const key = `${api.genesisHash.toHex()}-${api.runtimeVersion.specVersion.toString()}`;
@@ -76,7 +114,7 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
         // Best-effort cache write. Idempotent; only writes if missing.
         saveMetadataIfNew(api);
         return api;
-      });
+      })();
       apiPromise = connectPromise.catch((err) => {
         apiPromise = null;
         apiInstance = null;

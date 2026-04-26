@@ -1,5 +1,5 @@
 import { GearApi, type UserMessageSent } from '@gear-js/api';
-import { outputNdjson, verbose, CliError, tryHexToText } from '../../utils';
+import { outputNdjson, verbose, CliError, tryHexToText, fastExit } from '../../utils';
 import { insertEvent, type EventInsert } from '../../services/event-store';
 import { disconnectApi } from '../../services/api';
 import type { LoadedSails } from '../../services/sails';
@@ -16,7 +16,7 @@ export function installGlobalTimeout(timeoutStr?: string): void {
   setTimeout(() => {
     verbose('Global timeout reached, exiting...');
     disconnectApi();
-    process.exit(0);
+    fastExit(0);
   }, seconds * 1000);
 }
 

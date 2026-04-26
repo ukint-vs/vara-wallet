@@ -7,3 +7,4 @@ export { coerceArgs, coerceArgsV2, coerceArgsAuto, coerceHexToBytes, coerceHexTo
 export { decodeSailsResult, decodeEventData } from './decode-sails-result';
 export { loadArgsJson, validateTopLevelArgs, type ArgsSourceOptions } from './args-source';
 export { enableTiming, isTimingEnabled, markStage, markTotal } from './timing';
+export { fastExit } from './fast-exit';
