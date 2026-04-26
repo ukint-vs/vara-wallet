@@ -95,8 +95,11 @@ export function registerEncodeCommand(program: Command): void {
         ) {
           const preview = JSON.stringify(parsedValue) ?? String(parsedValue);
           const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+          // Wording kept short on purpose: the seed/mnemonic sanitizer in
+          // utils/errors.ts redacts any unbroken run of 12+ word tokens, so
+          // this message uses commas to break the run early.
           throw new CliError(
-            `Args must be a JSON array of positional values or a scalar, e.g. ["0x..."]. ` +
+            `Args must be a JSON array, e.g. ["0x..."], or a scalar. ` +
             `Got object: ${truncated}`,
             'INVALID_ARGS_FORMAT',
           );
