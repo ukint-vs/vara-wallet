@@ -1,23 +1,10 @@
 import { CliError, classifyProgramError, formatError } from '../utils/errors';
 
 /**
- * Regression coverage for the gas-estimate failure path (Nexus session report,
- * 2026-04-25): when `calculateGas()` runs the message in a runtime sandbox and
- * the program reverts (e.g. cross-program transfer fails because allowance is
- * exhausted, or the contract panics), the underlying program error must
- * surface as `PROGRAM_ERROR` with a structured `reason` subcode — NOT as a
- * generic gas error string.
- *
- * Without classification, agents read "gas calculation failed" and chase
- * phantom multiplier flags instead of fixing the real state issue (e.g.
- * approving the spender). The fix is a try/catch around every
- * `await txBuilder.calculateGas()` / `api.program.calculateGas.*()` call site
- * in `src/commands/{call,program,message,dex,vft}.ts`, rethrowing via
- * `classifyProgramError`.
- *
- * This test pins that contract by mocking the txBuilder and asserting the
- * thrown CliError. We don't spin up the chain — the integration cost would
- * dwarf the value of this guarantee.
+ * Pins the contract that calculateGas reverts surface as PROGRAM_ERROR
+ * with a structured `reason` subcode. Without classification, agents see
+ * "gas calculation failed" and chase phantom multiplier flags instead of
+ * fixing the real state issue (e.g. approving an exhausted allowance).
  */
 describe('calculateGas error classification', () => {
   function makeFailingTxBuilder(message: string) {
@@ -30,7 +17,6 @@ describe('calculateGas error classification', () => {
     };
   }
 
-  // Mirrors the wrap pattern applied in commands/call.ts:312-318 etc.
   async function calcAndClassify(tb: { calculateGas: () => Promise<unknown> }): Promise<unknown> {
     try {
       return await tb.calculateGas();
@@ -39,11 +25,9 @@ describe('calculateGas error classification', () => {
     }
   }
 
-  // Real Sails contracts using `#[export(unwrap_result)]` (the standard
-  // pattern for typed `Result<T, EnumError>` returns) wrap the variant name
-  // in the default Rust `.unwrap()` panic prefix. Without the stripper in
-  // classifyProgramError, `programMessage` would be the whole wrapper and
-  // agents could not switch on the bare variant. See issue #55.
+  // Sails `#[export(unwrap_result)]` wraps typed Result<T, E> errors in the
+  // default Rust `.unwrap()` panic prefix; without stripping, programMessage
+  // is the whole wrapper and agents can't switch on the bare variant.
   it('contract panic (Sails unwrap_result wrapper) → programMessage = bare variant', async () => {
     const tb = makeFailingTxBuilder(
       "Program 0xabcd panicked with 'called `Result::unwrap()` on an `Err` value: BetTokenTransferFromFailed' at app/src/lib.rs:424",
@@ -72,10 +56,8 @@ describe('calculateGas error classification', () => {
     expect(formatted.code).not.toBe('INTERNAL_ERROR');
   });
 
-  // Real mainnet shape captured from PolyBaskets BasketMarket/CreateBasket
-  // with empty items (issue #55 reproduction). Two quirks present in
-  // production today: (1) `Result::unwrap, ` with comma+space instead of
-  // `()` — gear/sails version dependent; (2) double trailing apostrophe
+  // Two production quirks: (1) `Result::unwrap, ` with comma+space instead
+  // of `()` — gear/sails version dependent; (2) double trailing apostrophe
   // from layered `Panic occurred: '...'` + `panicked with '...'` quoting.
   it('mainnet wrapper shape (Result::unwrap, with double trailing quote) strips cleanly', async () => {
     const tb = makeFailingTxBuilder(
@@ -94,10 +76,6 @@ describe('calculateGas error classification', () => {
     expect((caught as CliError).meta?.programMessage).toBe('NoItems');
   });
 
-  // Variant with a payload (Debug-formatted tuple/struct fields) must pass
-  // through whole. Agents reading `programMessage` against a known set of
-  // variant names should still see the variant name as a prefix, and the
-  // payload is useful debug context.
   it('variant with payload preserves payload in programMessage', async () => {
     const tb = makeFailingTxBuilder(
       "Program 0xabcd panicked with 'called `Result::unwrap()` on an `Err` value: InsufficientBalance(100)' at lib.rs:1",
@@ -113,9 +91,6 @@ describe('calculateGas error classification', () => {
     expect((caught as CliError).meta?.programMessage).toBe('InsufficientBalance(100)');
   });
 
-  // Custom `panic!("…")` calls (or `expect("…")` with a custom message) do
-  // not have the `Result::unwrap` wrapper. The classifier must pass them
-  // through unchanged — stripper only runs when the prefix matches.
   it('custom panic message without Result::unwrap wrapper passes through', async () => {
     const tb = makeFailingTxBuilder(
       "Program 0xabcd panicked with 'oracle feed stale' at lib.rs:1",
@@ -145,13 +120,10 @@ describe('calculateGas error classification', () => {
     expect((caught as CliError).meta?.reason).toBe('inactive');
   });
 
-  // Pinned: when `vara-wallet send-message <user-account-address>` runs and
-  // calculateGas.handle is called against a non-program destination, the
-  // gear node returns RPC code 8000 with data 'Program not found'.
-  // polkadot's RpcError formats that into err.message as
-  // "8000: <msg>: Program not found". The classifier MUST recognize this
-  // form (lowercase 'n', with space) so that message.ts can use the
-  // gas=0 fallback only for that legit case — not swallow real panics.
+  // gear node returns RPC code 8000 with `Program not found` when
+  // calculateGas.handle targets a non-program destination. The classifier
+  // must recognize this so message.ts can apply the gas=0 fallback only
+  // for that legit case, not swallow real panics.
   it('gear-node "Program not found" RPC error surfaces as reason: not_found', async () => {
     const tb = makeFailingTxBuilder(
       "8000: Runtime error: Program not found",
@@ -168,13 +140,11 @@ describe('calculateGas error classification', () => {
     expect((caught as CliError).meta?.reason).toBe('not_found');
   });
 
-  // Pinned: on current Vara mainnet (spec 11000+), calculateGas.handle to a
-  // non-program destination returns "entered unreachable code: Failed to get
-  // last message from the queue", NOT "Program not found". message.ts must
-  // recognize this AND classify it as the missing-program case so that
-  // `vara-wallet message send <user-account>` keeps working with auto-gas.
-  // Found by smoke testing against rpc.vara.network during the agent UX
-  // hardening PR; older wording-only narrow catch broke this path.
+  // On gear-node spec 11000+, calculateGas.handle to a non-program
+  // destination returns "entered unreachable code: Failed to get last
+  // message from the queue" instead of "Program not found". message.ts
+  // must recognize this AND fall back to gas=0 so user-account sends
+  // keep working with auto-gas.
   it('"unreachable code: Failed to get last message from the queue" classifies as reason: unreachable', async () => {
     const tb = makeFailingTxBuilder(
       `8000: Runtime error: "Internal error: entered unreachable code 'Failed to get last message from the queue'"`,

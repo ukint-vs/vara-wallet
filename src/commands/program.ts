@@ -5,7 +5,7 @@ import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { parseIdlFileAuto } from '../services/sails';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, classifyProgramError, loadArgsJson } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export interface InitOptions {
   payload: string;
@@ -71,27 +71,8 @@ export async function resolveInitDescriptor(options: InitOptions): Promise<{ pay
       args: options.args,
       argsFile: options.argsFile,
     });
-    // Arity-aware top-level JSON validation. 1-arg constructors legitimately
-    // accept a bare scalar/object that gets wrapped (preserves the historical
-    // struct-config shorthand: `--args '{"admin":"0x..."}'` for `New(cfg: Config)`).
-    // For 0-arg or multi-arg constructors, a non-array top-level value is wrong.
-    // Type mismatches caught at the codec layer (hex-bytes.ts).
     const arity = ctor.args?.length ?? 0;
-    if (!Array.isArray(parsed) && arity !== 1) {
-      const got = parsed === null
-        ? 'null'
-        : typeof parsed === 'object'
-          ? 'object'
-          : typeof parsed;
-      const preview = JSON.stringify(parsed) ?? String(parsed);
-      const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-      throw new CliError(
-        `Constructor "${initName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
-        `Got ${got}: ${truncated}`,
-        'INVALID_ARGS_FORMAT',
-      );
-    }
-    args = Array.isArray(parsed) ? parsed : [parsed];
+    args = validateTopLevelArgs(parsed, arity, { kind: 'Constructor', name: initName });
   }
 
   const expectedArgs = ctor.args?.length ?? 0;

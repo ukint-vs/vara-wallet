@@ -196,3 +196,36 @@ function readStdinSync(): string {
 function stripPositionTail(msg: string): string {
   return msg.replace(/\s+(?:in JSON\s+)?at position \d+(?:\s*\(line \d+ column \d+\))?\s*$/, '');
 }
+
+/**
+ * Arity-aware top-level JSON validation for Sails callables.
+ *
+ * 1-arg methods/constructors legitimately accept a bare scalar/object that
+ * gets wrapped into `[value]` — preserves the struct-arg shorthand
+ * `--args '{"to":..., "amount":1}'` for `Send(transfer: Transfer)`.
+ * For 0-arg or multi-arg callables, a non-array top-level value is wrong;
+ * we throw `INVALID_ARGS_FORMAT` here rather than letting it produce a
+ * cryptic codec error downstream. Type mismatches at primitive args are
+ * caught at the codec layer (see hex-bytes.ts:tryActorIdToHex).
+ */
+export function validateTopLevelArgs(
+  parsed: unknown,
+  arity: number,
+  callable: { kind: 'Method' | 'Constructor'; name: string },
+): unknown[] {
+  if (!Array.isArray(parsed) && arity !== 1) {
+    const got = parsed === null
+      ? 'null'
+      : typeof parsed === 'object'
+        ? 'object'
+        : typeof parsed;
+    const preview = JSON.stringify(parsed) ?? String(parsed);
+    const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+    throw new CliError(
+      `${callable.kind} "${callable.name}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
+      `Got ${got}: ${truncated}`,
+      'INVALID_ARGS_FORMAT',
+    );
+  }
+  return Array.isArray(parsed) ? parsed : [parsed];
+}

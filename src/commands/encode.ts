@@ -3,7 +3,7 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { loadSailsAuto, parseIdlFileAuto, isSailsV2, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
-import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson } from '../utils';
+import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -84,35 +84,8 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
-        // Arity-aware top-level JSON validation. Sails methods take positional
-        // args; for multi-arg or zero-arg methods, a non-array top-level value
-        // is wrong. 1-arg methods legitimately accept a bare scalar OR object
-        // that gets wrapped into [value] — preserves the historical struct-arg
-        // shorthand (e.g. `encode _ '{"to":"0x..","amount":1}' --method S/Send`
-        // for `Send(t: Transfer)`). Type mismatches at primitive args are
-        // caught at the codec layer (hex-bytes.ts:tryActorIdToHex).
         const arity = func.args?.length ?? 0;
-        // Match call.ts / program.ts: reject any non-array top-level value
-        // for 0-arg or multi-arg methods. 1-arg methods preserve the
-        // bare-scalar/struct shorthand (wrapped to [value] below). The
-        // narrower object-only check here previously let strings, numbers,
-        // and null slip through and produce cryptic codec errors. Caught
-        // by gemini-code-assist on PR #54.
-        if (!Array.isArray(parsedValue) && arity !== 1) {
-          const got = parsedValue === null
-            ? 'null'
-            : typeof parsedValue === 'object'
-              ? 'object'
-              : typeof parsedValue;
-          const preview = JSON.stringify(parsedValue) ?? String(parsedValue);
-          const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-          throw new CliError(
-            `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
-            `Got ${got}: ${truncated}`,
-            'INVALID_ARGS_FORMAT',
-          );
-        }
-        const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+        const rawArgs = validateTopLevelArgs(parsedValue, arity, { kind: 'Method', name: methodName });
         const args = coerceArgsAuto(rawArgs, func.args, sails, serviceName);
         const encoded = func.encodePayload(...args);
 

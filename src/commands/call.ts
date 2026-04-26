@@ -5,7 +5,7 @@ import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, typ
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -96,31 +96,9 @@ export function registerCallCommand(program: Command): void {
         );
       }
 
-      // Arity-aware top-level JSON validation. Sails methods take
-      // POSITIONAL args, but a 1-arg method legitimately accepts a bare
-      // scalar/object that gets wrapped into [value] (preserves the
-      // historical struct-arg shorthand: `--args '{"to":..., "amount":1}'`
-      // for `Send(transfer: Transfer)`). For 0-arg or multi-arg methods,
-      // a non-array top-level value is always wrong. Type mismatches
-      // (e.g. object passed to a primitive arg) are caught at the codec
-      // layer with field-named errors (see hex-bytes.ts:tryActorIdToHex).
       const methodObj = isQuery ? service.queries[methodName] : service.functions[methodName];
       const arity = methodObj.args?.length ?? 0;
-      if (!Array.isArray(parsed) && arity !== 1) {
-        const got = parsed === null
-          ? 'null'
-          : typeof parsed === 'object'
-            ? 'object'
-            : typeof parsed;
-        const preview = JSON.stringify(parsed) ?? String(parsed);
-        const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-        throw new CliError(
-          `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
-          `Got ${got}: ${truncated}`,
-          'INVALID_ARGS_FORMAT',
-        );
-      }
-      let args: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      let args = validateTopLevelArgs(parsed, arity, { kind: 'Method', name: methodName });
 
       if (isQuery) {
         if (options.voucher) {

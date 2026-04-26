@@ -1,54 +1,25 @@
 import { CliError } from '../utils/errors';
+import { validateTopLevelArgs } from '../utils/args-source';
 
 /**
- * Regression coverage for the args-format trap surfaced by the Nexus
- * Season 2 PolyBaskets agent report (2026-04-26).
- *
- * Symptom: passing `--args '{"address":"0x..."}'` produced a cryptic
- *   "Expected input with 32 bytes (256 bits), found 15 bytes"
- * because call.ts:78 silently wrapped the non-array as `[parsed]` and
- * the object then leaked through tryActorIdToHex (hex-bytes.ts:85)
- * which only validated strings.
- *
- * Two layers of defense, both pinned here:
- *   1. call.ts / program.ts / encode.ts reject non-array (or non-array
- *      plus non-scalar) top-level JSON with INVALID_ARGS_FORMAT before
- *      the wrap.
- *   2. tryActorIdToHex still rejects plain objects with INVALID_ADDRESS
- *      as defense-in-depth, in case a non-string non-array value reaches
+ * Two layers of defense against the named-arg-object trap (where
+ * `--args '{"address":"0x..."}'` to a multi-arg method silently wrapped
+ * as `[obj]` and produced a cryptic "Expected 32 bytes, found 15 bytes"
+ * codec error):
+ *   1. validateTopLevelArgs rejects non-array top-level JSON for 0-arg
+ *      and multi-arg callables with INVALID_ARGS_FORMAT before the wrap.
+ *   2. tryActorIdToHex rejects plain objects with INVALID_ADDRESS as
+ *      defense-in-depth, in case a non-string non-array value reaches
  *      that layer programmatically.
- *
- * We don't spin up Commander here — we exercise the validation logic
- * directly. The full call-path is covered by integration tests against
- * a live runtime; this is the unit pin.
  */
 
-describe('top-level JSON args format validation (arity-aware)', () => {
-  // Mirrors the guard now in call.ts, program.ts, and encode.ts.
-  // A 1-arg method legitimately accepts a bare scalar/object (wrapped to
-  // [value]); 0-arg or multi-arg methods MUST receive a JSON array.
-  function assertArgsShape(parsed: unknown, arity: number, methodName = 'M'): unknown[] {
-    if (!Array.isArray(parsed) && arity !== 1) {
-      const got = parsed === null
-        ? 'null'
-        : typeof parsed === 'object'
-          ? 'object'
-          : typeof parsed;
-      const preview = JSON.stringify(parsed) ?? String(parsed);
-      const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-      throw new CliError(
-        `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
-        `Got ${got}: ${truncated}`,
-        'INVALID_ARGS_FORMAT',
-      );
-    }
-    return Array.isArray(parsed) ? parsed : [parsed];
-  }
+describe('validateTopLevelArgs (arity-aware)', () => {
+  const M = { kind: 'Method', name: 'M' } as const;
 
   it('multi-arg method: named-arg object throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsShape({ address: '0x1234' }, 2);
+      validateTopLevelArgs({ address: '0x1234' }, 2, M);
     } catch (err) {
       caught = err;
     }
@@ -62,7 +33,7 @@ describe('top-level JSON args format validation (arity-aware)', () => {
   it('multi-arg method: scalar (string) throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsShape('0x1234', 2);
+      validateTopLevelArgs('0x1234', 2, M);
     } catch (err) {
       caught = err;
     }
@@ -73,7 +44,7 @@ describe('top-level JSON args format validation (arity-aware)', () => {
   it('zero-arg method: any non-array throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsShape(null, 0);
+      validateTopLevelArgs(null, 0, M);
     } catch (err) {
       caught = err;
     }
@@ -83,32 +54,41 @@ describe('top-level JSON args format validation (arity-aware)', () => {
 
   it('1-arg method: object passes through as wrapped struct arg', () => {
     // Historical struct-arg shorthand: --args '{"to":"0x..","amount":1}'
-    // for Send(transfer: Transfer). The codec layer (tryActorIdToHex etc.)
-    // catches type mismatches at the right layer with field-named errors.
-    const result = assertArgsShape({ to: '0x1234', amount: 1 }, 1);
-    expect(result).toEqual([{ to: '0x1234', amount: 1 }]);
+    // for Send(transfer: Transfer). Codec catches type mismatches at the
+    // right layer with field-named errors.
+    expect(validateTopLevelArgs({ to: '0x1234', amount: 1 }, 1, M))
+      .toEqual([{ to: '0x1234', amount: 1 }]);
   });
 
   it('1-arg method: scalar string passes through as wrapped value', () => {
-    const result = assertArgsShape('0x1234', 1);
-    expect(result).toEqual(['0x1234']);
+    expect(validateTopLevelArgs('0x1234', 1, M)).toEqual(['0x1234']);
   });
 
   it('valid array always passes through (any arity)', () => {
-    expect(assertArgsShape(['0x1234'], 1)).toEqual(['0x1234']);
-    expect(assertArgsShape([], 0)).toEqual([]);
-    expect(assertArgsShape([1, 2, 3], 3)).toEqual([1, 2, 3]);
+    expect(validateTopLevelArgs(['0x1234'], 1, M)).toEqual(['0x1234']);
+    expect(validateTopLevelArgs([], 0, M)).toEqual([]);
+    expect(validateTopLevelArgs([1, 2, 3], 3, M)).toEqual([1, 2, 3]);
   });
 
   it('long object preview is truncated with ellipsis', () => {
     const big = { x: 'a'.repeat(500) };
     let caught: unknown;
     try {
-      assertArgsShape(big, 2);
+      validateTopLevelArgs(big, 2, M);
     } catch (err) {
       caught = err;
     }
     expect((caught as CliError).message).toMatch(/\.\.\.$/);
+  });
+
+  it('Constructor kind shows in error message', () => {
+    let caught: unknown;
+    try {
+      validateTopLevelArgs({ x: 1 }, 2, { kind: 'Constructor', name: 'New' });
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as CliError).message).toContain('Constructor "New"');
   });
 });
 
