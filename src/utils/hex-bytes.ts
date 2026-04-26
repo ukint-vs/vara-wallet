@@ -83,6 +83,23 @@ function hexToBytes(value: string, fieldHint?: string): number[] {
  * encoder produce an opaque length error.
  */
 function tryActorIdToHex(value: unknown, fieldHint?: string): unknown {
+  // Plain objects are never a legitimate ActorId shape. Reject explicitly
+  // so callers see "Invalid ActorId: object" instead of cryptic codec
+  // errors when malformed JSON (e.g. `{"address":"0x..."}`) leaks through.
+  // Arrays still pass through — pre-decoded `number[]` of length 32 is a
+  // legitimate SCALE codec input shape.
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  ) {
+    const preview = JSON.stringify(value) ?? String(value);
+    const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+    throw new CliError(
+      `Invalid ActorId${fieldHint ? ` for "${fieldHint}"` : ''}: expected hex string, SS58 address, or 32-byte array, got object: ${truncated}`,
+      'INVALID_ADDRESS',
+    );
+  }
   if (typeof value !== 'string') return value;
   if (ACTOR_ID_HEX_RE.test(value)) return value;
   try {

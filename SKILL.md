@@ -271,9 +271,11 @@ Existential deposit is ~10 VARA on mainnet.
 | `DECRYPT_FAILED` | Wrong passphrase | Verify passphrase file content |
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network congestion |
 | `TX_FAILED` | On-chain failure | Inspect `.events` in output |
-| `IDL_NOT_FOUND` | No Sails IDL | Provide `--idl <path>` |
+| `IDL_NOT_FOUND` | No Sails IDL — error self-documents v1 vs chain-unavailable | If "v1 contract": `vara-wallet idl import <path> --program <id>`. Otherwise pass `--idl <path>` |
 | `METHOD_NOT_FOUND` | Method not in IDL | Check `discover` output |
-| `PROGRAM_ERROR` | Program panicked/failed | Check error message for program-side issue |
+| `INVALID_ARGS_FORMAT` | `--args` not in expected shape | Use a JSON array: `["arg1","arg2"]`. 1-arg struct methods also accept `'{"field":...}'` |
+| `INVALID_ADDRESS` | Wrong shape for `actor_id` | Use hex (0x + 64 chars), SS58, or 32-byte array. Field name in the message |
+| `PROGRAM_ERROR` | Program execution failed | Read `meta.programMessage` for contract error variant. State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems |
 
 ## Guardrails
 

@@ -5,7 +5,7 @@ import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx, TxEvent } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, resolvePayload, tryHexToText } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, classifyProgramError, resolvePayload, tryHexToText } from '../utils';
 
 /**
  * Extract messageId from transaction events using multi-pattern fallback.
@@ -105,9 +105,29 @@ export function registerMessageCommand(program: Command): void {
           );
           gasLimit = gasInfo.min_limit.toBigInt();
           verbose(`Gas limit: ${gasLimit}`);
-        } catch (error) {
-          verbose(`Gas calculation failed (destination may be a user account), using gas limit 0. Error: ${error}`);
-          gasLimit = 0n;
+        } catch (err) {
+          // `message send` accepts both program and user-account destinations.
+          // For user accounts, calculateGas.handle reports "no program at this
+          // destination" via a few different gear-node phrasings depending on
+          // spec version: explicit "Program not found" (older paths), or, on
+          // current Vara mainnet (spec 11000+), an "entered unreachable code:
+          // Failed to get last message from the queue" trap. Both mean the
+          // same thing: there is no program to estimate gas against, so we
+          // fall back to gasLimit=0 and let the system extrinsic carry the
+          // value transfer. For everything else (real program panic, transport
+          // error), rethrow with structured info.
+          const cli = classifyProgramError(err);
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const isMissingProgram =
+            cli.meta?.reason === 'not_found' ||
+            (cli.meta?.reason === 'unreachable' &&
+              /Failed to get last message from the queue/i.test(rawMsg));
+          if (isMissingProgram) {
+            verbose('Destination is not a program, using gas limit 0');
+            gasLimit = 0n;
+          } else {
+            throw cli;
+          }
         }
       }
 
@@ -181,15 +201,19 @@ export function registerMessageCommand(program: Command): void {
       } else {
         verbose('Calculating gas...');
         const sourceHex = addressToHex(account.address);
-        const gasInfo = await api.program.calculateGas.reply(
-          sourceHex,
-          messageId as `0x${string}`,
-          payload,
-          value,
-          true,
-          meta,
-        );
-        gasLimit = gasInfo.min_limit.toBigInt();
+        try {
+          const gasInfo = await api.program.calculateGas.reply(
+            sourceHex,
+            messageId as `0x${string}`,
+            payload,
+            value,
+            true,
+            meta,
+          );
+          gasLimit = gasInfo.min_limit.toBigInt();
+        } catch (err) {
+          throw classifyProgramError(err);
+        }
         verbose(`Gas limit: ${gasLimit}`);
       }
 

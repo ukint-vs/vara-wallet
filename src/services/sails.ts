@@ -279,25 +279,30 @@ async function resolveIdl(
   }
 
   // (3) Chain WASM.
+  // Track whether the chain probe deterministically identified this as a
+  // v1 contract (WASM exists but has no sails:idl section). Used below
+  // to render a precise error instead of hedging "v1 or v2".
+  let chainProbeReason: ExtractFromChainResult['reason'] | undefined;
   if (codeId) {
     const extracted = await tryExtractFromChain(api, codeId);
-    if (extracted !== null) {
+    chainProbeReason = extracted.reason;
+    if (extracted.idl !== null) {
       if (!options.idlValidator || !parser) {
-        writeCachedIdl(codeId, extracted, {
-          version: detectIdlVersion(extracted),
+        writeCachedIdl(codeId, extracted.idl, {
+          version: detectIdlVersion(extracted.idl),
           source: 'chain',
           importedAt: new Date().toISOString(),
         });
-        return extracted;
+        return extracted.idl;
       }
-      if (validateIdlAgainst(parser, extracted, options.idlValidator)) {
-        writeCachedIdl(codeId, extracted, {
-          version: detectIdlVersion(extracted),
+      if (validateIdlAgainst(parser, extracted.idl, options.idlValidator)) {
+        writeCachedIdl(codeId, extracted.idl, {
+          version: detectIdlVersion(extracted.idl),
           source: 'chain',
           importedAt: new Date().toISOString(),
         });
         verbose(`IDL from chain WASM (validator passed): ${codeId}`);
-        return extracted;
+        return extracted.idl;
       }
       verbose(`IDL from chain WASM rejected by validator; not caching. codeId=${codeId}`);
       // Fall through to bundled — the chain IDL was real but doesn't
@@ -319,18 +324,27 @@ async function resolveIdl(
     verbose('No bundled IDLs matched the required methods');
   }
 
-  // (5) All sources exhausted.
-  throw new CliError(
-    `No IDL source available for program ${options.programId}.\n` +
-    `- v2 programs: the IDL is read from the on-chain WASM's \`sails:idl\` section.\n` +
-    `  If that failed, the program may be v1 or built with sails < 1.0.0-beta.1.\n` +
-    `- v1 programs: import the IDL manually:\n` +
-    `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
-    `  (IDLs are typically shipped in the project's GitHub repo.)\n` +
-    `- One-off: pass --idl <path.idl>.\n` +
-    `Run with --verbose to see which sources were tried and why each failed.`,
-    'IDL_NOT_FOUND',
-  );
+  // (5) All sources exhausted. Render an error keyed off the chain probe:
+  // - 'no-section' is deterministic — the WASM was readable and has no
+  //   sails:idl section. That's a v1 contract; tell the user precisely.
+  // - 'unavailable' / undefined: we couldn't read the WASM, so we can't
+  //   tell v1 from v2. Hedge in that case only.
+  const isV1Contract = chainProbeReason === 'no-section';
+  const errMsg = isV1Contract
+    ? `No IDL available for program ${options.programId}.\n` +
+      `This is a v1 contract — the on-chain WASM has no \`sails:idl\` custom section.\n` +
+      `Import the IDL manually:\n` +
+      `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
+      `IDLs are typically shipped in the project's GitHub repo. Or use --idl <path.idl> for a one-off.`
+    : `No IDL source available for program ${options.programId}.\n` +
+      `- v2 programs: the IDL is read from the on-chain WASM's \`sails:idl\` section.\n` +
+      `  Could not reach the chain or the program code is unavailable.\n` +
+      `- v1 programs: import the IDL manually:\n` +
+      `    vara-wallet idl import <path.idl> --program ${options.programId}\n` +
+      `  (IDLs are typically shipped in the project's GitHub repo.)\n` +
+      `- One-off: pass --idl <path.idl>.\n` +
+      `Run with --verbose to see which sources were tried and why each failed.`;
+  throw new CliError(errMsg, 'IDL_NOT_FOUND');
 }
 
 /** Fetch the program's original WASM via `gearProgram.originalCodeStorage`
@@ -343,21 +357,35 @@ export async function _tryExtractFromChainForTests(
   api: GearApi,
   codeId: string,
 ): Promise<string | null> {
-  return tryExtractFromChain(api, codeId);
+  const result = await tryExtractFromChain(api, codeId);
+  return result.idl;
 }
 
-async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string | null> {
+/** Outcome of an on-chain WASM IDL extraction.
+ *  - `ok`: WASM had a sails:idl custom section (v2 contract).
+ *  - `no-section`: WASM exists and was readable but had no sails:idl section.
+ *    This is the deterministic v1-contract signal — caller can render an
+ *    accurate "this is a v1 contract" message instead of hedging.
+ *  - `unavailable`: couldn't read the WASM at all (no entry, RPC error,
+ *    too large). Caller cannot infer v1 vs v2 from this.
+ */
+type ExtractFromChainResult =
+  | { idl: string; reason: 'ok' }
+  | { idl: null; reason: 'no-section' }
+  | { idl: null; reason: 'unavailable' };
+
+async function tryExtractFromChain(api: GearApi, codeId: string): Promise<ExtractFromChainResult> {
   verbose(`Fetching original WASM from chain for codeId ${codeId}...`);
   let option: Option<Bytes>;
   try {
     option = await api.query.gearProgram.originalCodeStorage(codeId) as Option<Bytes>;
   } catch (err) {
     verbose(`originalCodeStorage RPC failed: ${errorMessage(err)}`);
-    return null;
+    return { idl: null, reason: 'unavailable' };
   }
   if (!option.isSome) {
     verbose(`originalCodeStorage returned None for codeId ${codeId}`);
-    return null;
+    return { idl: null, reason: 'unavailable' };
   }
   // .toU8a() on a Bytes codec includes the SCALE compact-length prefix.
   // We want the raw inner WASM bytes (starting with the 0061736d magic),
@@ -367,14 +395,15 @@ async function tryExtractFromChain(api: GearApi, codeId: string): Promise<string
   const bytes = option.unwrap().toU8a(true);
   if (bytes.length > MAX_WASM_BYTES) {
     verbose(`WASM size ${bytes.length} exceeds MAX_WASM_BYTES; refusing to parse`);
-    return null;
+    return { idl: null, reason: 'unavailable' };
   }
   try {
     const idl = await extractSailsIdl(bytes);
     if (idl === null) {
       verbose(`No sails:idl custom section in WASM for codeId ${codeId}`);
+      return { idl: null, reason: 'no-section' };
     }
-    return idl;
+    return { idl, reason: 'ok' };
   } catch (err) {
     throw new CliError(
       `Failed to extract sails:idl from on-chain WASM: ${errorMessage(err)}`,

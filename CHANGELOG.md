@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Agent-UX hardening surfaced by a field report from a betting agent and an adversarial cross-model review (Codex). Three layers: structured gas-estimate errors, arity-aware args validation, sharper IDL diagnostics.
+
+### Added
+
+- **`INVALID_ARGS_FORMAT` error code** for `call`, `program upload/create`, and `encode --method`. Sails methods take positional args; passing a top-level JSON object (named-arg shorthand) to a multi-arg method now errors before reaching the codec instead of silently wrapping into `[obj]` and producing cryptic codec errors. 1-arg struct methods preserve the bare-object shorthand: `'{"field":...}'` and `'[{"field":...}]'` both work.
+- **`INVALID_ADDRESS` for non-string `actor_id` field values.** Plain objects passed where an `actor_id` is expected now error at the codec layer with a field-named message: `Invalid ActorId for "<field>": expected hex string, SS58 address, or 32-byte array, got object: {...}`. Replaces the previous "Expected 32 bytes, found 15 bytes" mystery.
+- **Structured `meta` on `PROGRAM_ERROR`.** When `calculateGas` reverts because the program panicked or hit `unreachable`, the error now includes `reason` (`panic` / `unreachable` / `inactive` / `not_found`) and `programMessage` (contract error variant name). Agents can switch on `.programMessage` directly instead of regex-matching English.
+
+### Changed
+
+- **`IDL_NOT_FOUND` error wording is now precise.** When the on-chain WASM is readable but has no `sails:idl` custom section, the error explicitly says "This is a v1 contract" and points at `vara-wallet idl import`. The previous message hedged "may be v1 or sails < 1.0.0-beta.1" with no way to tell.
+- **`calculateGas` failures are classified everywhere.** Wrapped at all 8 auto-calc sites (call, program init upload/create, message reply, dex approve/reset/exec, vft exec). Cross-program transfer panics in PolyBaskets / VFT contexts (e.g. `BetTokenTransferFromFailed` from insufficient allowance) now surface with `code: PROGRAM_ERROR + reason: panic + programMessage: <variant>` instead of opaque "gas calculation failed" text.
+- **`message send` to a user-account destination still works** (gas=0 fallback preserved). The handle path now uses targeted error classification: `reason: not_found` (older gear-node spec) and `reason: unreachable` with the substring `Failed to get last message from the queue` (gear-node spec 11000+) both fall back to `gasLimit = 0n`. Real program panics rethrow with structured info instead of being silently swallowed.
+
+### Fixed
+
+- **`programMessage` strips the `Result::unwrap` wrapper** (issue #55). Sails contracts using `#[export(unwrap_result)]` (the standard pattern for typed `Result<T, EnumError>` returns) emit panics in the form `called \`Result::unwrap()\` on an \`Err\` value: <Variant>`. The classifier now extracts the bare variant so agents can `case "$pm" in NoItems)` switch on it without substring matching. Variants with payloads (`InsufficientBalance(100)`) pass through whole; full original wrapper stays in `error` for debugging. Test fixture updated to the wrapped production shape so the regression guard is real, not synthetic.
+- **`package-lock.json` synced to v0.15.0.** The lockfile drifted at the v0.15.0 release.
+
 ## [0.15.0] - 2026-04-25
 
 First publish since 0.10.0. This release collapses the work that landed in git as 0.11 / 0.12 / 0.13 / 0.14 / 0.14.1 (none reached npm) into a single coherent surface, plus the UX cleanup that surfaced when documenting them. Upgrading from 0.10.0: install fresh, no migration needed.

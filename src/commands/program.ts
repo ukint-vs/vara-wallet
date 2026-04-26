@@ -5,7 +5,7 @@ import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { parseIdlFileAuto } from '../services/sails';
 import { executeTx } from '../services/tx-executor';
-import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, loadArgsJson } from '../utils';
+import { output, verbose, CliError, resolveAmount, addressToHex, coerceArgsAuto, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export interface InitOptions {
   payload: string;
@@ -71,7 +71,8 @@ export async function resolveInitDescriptor(options: InitOptions): Promise<{ pay
       args: options.args,
       argsFile: options.argsFile,
     });
-    args = Array.isArray(parsed) ? parsed : [parsed];
+    const arity = ctor.args?.length ?? 0;
+    args = validateTopLevelArgs(parsed, arity, { kind: 'Constructor', name: initName });
   }
 
   const expectedArgs = ctor.args?.length ?? 0;
@@ -172,15 +173,19 @@ export function registerProgramCommand(program: Command): void {
         gasLimit = BigInt(options.gasLimit);
       } else {
         verbose('Calculating gas for program upload...');
-        const gasInfo = await api.program.calculateGas.initUpload(
-          addressToHex(account.address),
-          code,
-          initPayload,
-          value,
-          true,
-          meta,
-        );
-        gasLimit = gasInfo.min_limit.toBigInt();
+        try {
+          const gasInfo = await api.program.calculateGas.initUpload(
+            addressToHex(account.address),
+            code,
+            initPayload,
+            value,
+            true,
+            meta,
+          );
+          gasLimit = gasInfo.min_limit.toBigInt();
+        } catch (err) {
+          throw classifyProgramError(err);
+        }
         verbose(`Gas limit: ${gasLimit}`);
       }
 
@@ -272,15 +277,19 @@ export function registerProgramCommand(program: Command): void {
         gasLimit = BigInt(options.gasLimit);
       } else {
         verbose('Calculating gas for program creation...');
-        const gasInfo = await api.program.calculateGas.initCreate(
-          addressToHex(account.address),
-          codeId as `0x${string}`,
-          initPayload,
-          value,
-          true,
-          meta,
-        );
-        gasLimit = gasInfo.min_limit.toBigInt();
+        try {
+          const gasInfo = await api.program.calculateGas.initCreate(
+            addressToHex(account.address),
+            codeId as `0x${string}`,
+            initPayload,
+            value,
+            true,
+            meta,
+          );
+          gasLimit = gasInfo.min_limit.toBigInt();
+        } catch (err) {
+          throw classifyProgramError(err);
+        }
         verbose(`Gas limit: ${gasLimit}`);
       }
 

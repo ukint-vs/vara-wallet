@@ -5,7 +5,7 @@ import { loadSailsAuto, describeSailsProgram, suggestMethod, suggestService, typ
 import { collectDecodedEvents } from '../services/sails-events';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, coerceArgsAuto, decodeSailsResult, classifyProgramError, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export function registerCallCommand(program: Command): void {
   program
@@ -75,9 +75,9 @@ export function registerCallCommand(program: Command): void {
         argsFile: options.argsFile,
         argsDefault: '[]',
       });
-      let args: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
 
-      // Check if it's a query or function
+      // Check if it's a query or function (resolve before arity-aware
+      // arg validation below)
       const isQuery = methodName in service.queries;
       const isFunction = methodName in service.functions;
 
@@ -95,6 +95,10 @@ export function registerCallCommand(program: Command): void {
           'METHOD_NOT_FOUND',
         );
       }
+
+      const methodObj = isQuery ? service.queries[methodName] : service.functions[methodName];
+      const arity = methodObj.args?.length ?? 0;
+      let args = validateTopLevelArgs(parsed, arity, { kind: 'Method', name: methodName });
 
       if (isQuery) {
         if (options.voucher) {
@@ -311,7 +315,11 @@ async function executeFunction(
     txBuilder.withGas(BigInt(options.gasLimit));
   } else {
     verbose('Calculating gas...');
-    await txBuilder.calculateGas();
+    try {
+      await txBuilder.calculateGas();
+    } catch (err) {
+      throw classifyProgramError(err);
+    }
     verbose(`Gas: ${txBuilder.gasInfo?.min_limit?.toString() || 'calculated'}`);
   }
 

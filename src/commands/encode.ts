@@ -3,7 +3,7 @@ import { ProgramMetadata } from '@gear-js/api';
 import * as fs from 'fs';
 import { getApi } from '../services/api';
 import { loadSailsAuto, parseIdlFileAuto, isSailsV2, suggestMethod, suggestService, type LoadedSails } from '../services/sails';
-import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson } from '../utils';
+import { output, verbose, CliError, tryHexToText, coerceArgsAuto, loadArgsJson, validateTopLevelArgs } from '../utils';
 
 export function registerEncodeCommand(program: Command): void {
   program
@@ -84,7 +84,8 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
-        const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
+        const arity = func.args?.length ?? 0;
+        const rawArgs = validateTopLevelArgs(parsedValue, arity, { kind: 'Method', name: methodName });
         const args = coerceArgsAuto(rawArgs, func.args, sails, serviceName);
         const encoded = func.encodePayload(...args);
 

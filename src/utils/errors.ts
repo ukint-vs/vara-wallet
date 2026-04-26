@@ -106,10 +106,32 @@ export function classifyProgramError(err: unknown): CliError {
   // are captured in full rather than truncated at the first inner quote.
   const panicMatch = raw.match(/panicked with ['"]([\s\S]*?)['"](?:\s+at\s|$)/);
   if (panicMatch) {
+    let programMessage = panicMatch[1];
+    // Sails `#[export(unwrap_result)]` (the standard pattern for typed
+    // `Result<T, EnumError>` returns) and bare Rust `.unwrap()` on `Err`
+    // surface as
+    //   called `Result::unwrap()` on an `Err` value: <Debug of variant>
+    // Strip the wrapper so consumers can `case` on the bare variant name
+    // without substring matching. Two real-world quirks the regex tolerates:
+    //   - some gear/sails versions render the call site as `Result::unwrap, `
+    //     instead of `Result::unwrap()`, so anything-but-backtick is allowed
+    //     between `unwrap` and the closing backtick.
+    //   - layered quoting (`Panic occurred: '...'` + `panicked with '...'`)
+    //     leaks one or more trailing apostrophes into `panicMatch[1]`; strip
+    //     them all (`'*$`).
+    // Variants with payloads (e.g. `InsufficientBalance(100)`, `Custom("x")`)
+    // pass through whole. The full original wrapper stays in `error` for
+    // debugging.
+    const unwrapMatch = programMessage.match(
+      /^called `Result::unwrap[^`]*` on an `Err` value:\s*(.+?)'*$/,
+    );
+    if (unwrapMatch) {
+      programMessage = unwrapMatch[1];
+    }
     return new CliError(
       `Program execution failed: ${raw}`,
       'PROGRAM_ERROR',
-      { reason: 'panic', programMessage: panicMatch[1] },
+      { reason: 'panic', programMessage },
     );
   }
 
@@ -129,10 +151,21 @@ export function classifyProgramError(err: unknown): CliError {
     );
   }
 
-  // Require the "does not exist" phrase to be qualified by "Program" so we
-  // do not misclassify generic "Account does not exist" / "File does not
-  // exist" errors as a program-level not_found.
-  if (raw.includes('ProgramNotFound') || /[Pp]rogram\b[^\n]*\bdoes not exist\b/.test(raw)) {
+  // Require the "does not exist" / "not found" phrase to be qualified by
+  // "Program" so we do not misclassify generic "Account does not exist" /
+  // "File not found" errors as a program-level not_found.
+  //
+  // Three signatures we accept:
+  //   - "ProgramNotFound"           — pallet error variant name (no space)
+  //   - "Program with id ... does not exist" — gear-js ProgramDoesNotExistError
+  //   - "Program not found"         — gear node RPC error data (code 8000),
+  //                                   surfaced when calculateGas.handle targets
+  //                                   a user account instead of a program.
+  if (
+    raw.includes('ProgramNotFound') ||
+    raw.includes('Program not found') ||
+    /[Pp]rogram\b[^\n]*\bdoes not exist\b/.test(raw)
+  ) {
     return new CliError(
       `Program execution failed: ${raw}`,
       'PROGRAM_ERROR',
