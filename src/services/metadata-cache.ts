@@ -78,7 +78,10 @@ export function loadMetadataCache(): Record<string, HexString> {
     const fullPath = path.join(dir, f);
     try {
       const raw = fs.readFileSync(fullPath, 'utf-8').trim();
-      if (!raw.toLowerCase().startsWith(METADATA_MAGIC_PREFIX)) {
+      // Lowercase only the prefix slice — `raw` is a 1-3MB hex blob, and
+      // `.toLowerCase()` on the full string would allocate a second copy
+      // just to inspect 10 chars.
+      if (raw.substring(0, METADATA_MAGIC_PREFIX.length).toLowerCase() !== METADATA_MAGIC_PREFIX) {
         // Corrupt or truncated entry. Silently dropping it lets the next
         // call refetch + overwrite. Best-effort unlink so the broken file
         // does not keep tripping verbose logs forever.
