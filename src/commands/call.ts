@@ -311,7 +311,11 @@ async function executeFunction(
     txBuilder.withGas(BigInt(options.gasLimit));
   } else {
     verbose('Calculating gas...');
-    await txBuilder.calculateGas();
+    try {
+      await txBuilder.calculateGas();
+    } catch (err) {
+      throw classifyProgramError(err);
+    }
     verbose(`Gas: ${txBuilder.gasInfo?.min_limit?.toString() || 'calculated'}`);
   }
 

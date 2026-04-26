@@ -7,7 +7,7 @@ import { resolveAccount, resolveAddress, AccountOptions } from '../services/acco
 import { loadSails } from '../services/sails';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, validateUnits } from '../utils';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, classifyProgramError, validateUnits } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -172,7 +172,11 @@ async function executeVftTx(
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);
-  await txBuilder.calculateGas();
+  try {
+    await txBuilder.calculateGas();
+  } catch (err) {
+    throw classifyProgramError(err);
+  }
 
   if (voucher) {
     txBuilder.withVoucher(voucher as `0x${string}`);

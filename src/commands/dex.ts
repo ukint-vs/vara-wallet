@@ -8,7 +8,7 @@ import { loadSails } from '../services/sails';
 import { readConfig } from '../services/config';
 import { resolveBlockNumber } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, validateUnits } from '../utils';
+import { output, verbose, CliError, minimalToVara, toMinimalUnits, addressToHex, decodeSailsResult, classifyProgramError, validateUnits } from '../utils';
 import { BUNDLED_DEX_FACTORY_IDLS, BUNDLED_DEX_PAIR_IDLS, BUNDLED_VFT_IDLS } from '../idl/bundled-idls';
 
 // ---------------------------------------------------------------------------
@@ -341,7 +341,11 @@ async function ensureApproval(
     const resetFunc = sails.services[serviceName].functions['Approve'];
     const resetTx = resetFunc(spender, 0n);
     resetTx.withAccount(account);
-    await resetTx.calculateGas();
+    try {
+      await resetTx.calculateGas();
+    } catch (err) {
+      throw classifyProgramError(err);
+    }
     const resetResult = await resetTx.signAndSend();
     try {
       await resetResult.response();
@@ -360,7 +364,11 @@ async function ensureApproval(
   const approveFunc = sails.services[serviceName].functions['Approve'];
   const approveTx = approveFunc(spender, requiredAmount);
   approveTx.withAccount(account);
-  await approveTx.calculateGas();
+  try {
+    await approveTx.calculateGas();
+  } catch (err) {
+    throw classifyProgramError(err);
+  }
   const result = await approveTx.signAndSend();
   try {
     await result.response();
@@ -396,7 +404,11 @@ async function executeDexTx(
   const txBuilder = func(...args);
 
   txBuilder.withAccount(account);
-  await txBuilder.calculateGas();
+  try {
+    await txBuilder.calculateGas();
+  } catch (err) {
+    throw classifyProgramError(err);
+  }
 
   if (voucher) {
     txBuilder.withVoucher(voucher as `0x${string}`);

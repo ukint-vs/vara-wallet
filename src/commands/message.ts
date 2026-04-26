@@ -5,7 +5,7 @@ import { getApi } from '../services/api';
 import { resolveAccount, AccountOptions } from '../services/account';
 import { executeTx, TxEvent } from '../services/tx-executor';
 import { validateVoucher } from '../services/voucher-validator';
-import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, resolvePayload, tryHexToText } from '../utils';
+import { output, verbose, CliError, resolveAmount, minimalToVara, addressToHex, classifyProgramError, resolvePayload, tryHexToText } from '../utils';
 
 /**
  * Extract messageId from transaction events using multi-pattern fallback.
@@ -105,9 +105,18 @@ export function registerMessageCommand(program: Command): void {
           );
           gasLimit = gasInfo.min_limit.toBigInt();
           verbose(`Gas limit: ${gasLimit}`);
-        } catch (error) {
-          verbose(`Gas calculation failed (destination may be a user account), using gas limit 0. Error: ${error}`);
-          gasLimit = 0n;
+        } catch (err) {
+          // `message send` accepts both program and user-account destinations.
+          // For user accounts, calculateGas.handle returns a "Program not found"
+          // RPC error; that's the legit case where gas=0 is correct.
+          // For everything else (program panic, transport error), surface it.
+          const cli = classifyProgramError(err);
+          if (cli.meta?.reason === 'not_found') {
+            verbose('Destination is not a program, using gas limit 0');
+            gasLimit = 0n;
+          } else {
+            throw cli;
+          }
         }
       }
 
@@ -181,15 +190,19 @@ export function registerMessageCommand(program: Command): void {
       } else {
         verbose('Calculating gas...');
         const sourceHex = addressToHex(account.address);
-        const gasInfo = await api.program.calculateGas.reply(
-          sourceHex,
-          messageId as `0x${string}`,
-          payload,
-          value,
-          true,
-          meta,
-        );
-        gasLimit = gasInfo.min_limit.toBigInt();
+        try {
+          const gasInfo = await api.program.calculateGas.reply(
+            sourceHex,
+            messageId as `0x${string}`,
+            payload,
+            value,
+            true,
+            meta,
+          );
+          gasLimit = gasInfo.min_limit.toBigInt();
+        } catch (err) {
+          throw classifyProgramError(err);
+        }
         verbose(`Gas limit: ${gasLimit}`);
       }
 
