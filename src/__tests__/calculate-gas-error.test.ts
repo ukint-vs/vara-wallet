@@ -39,9 +39,14 @@ describe('calculateGas error classification', () => {
     }
   }
 
-  it('contract panic during calculateGas surfaces as PROGRAM_ERROR with reason: panic', async () => {
+  // Real Sails contracts using `#[export(unwrap_result)]` (the standard
+  // pattern for typed `Result<T, EnumError>` returns) wrap the variant name
+  // in the default Rust `.unwrap()` panic prefix. Without the stripper in
+  // classifyProgramError, `programMessage` would be the whole wrapper and
+  // agents could not switch on the bare variant. See issue #55.
+  it('contract panic (Sails unwrap_result wrapper) → programMessage = bare variant', async () => {
     const tb = makeFailingTxBuilder(
-      "Program 0xabcd panicked with 'BetTokenTransferFromFailed' at app/src/lib.rs:424",
+      "Program 0xabcd panicked with 'called `Result::unwrap()` on an `Err` value: BetTokenTransferFromFailed' at app/src/lib.rs:424",
     );
 
     let caught: unknown;
@@ -65,6 +70,65 @@ describe('calculateGas error classification', () => {
     expect(formatted.reason).toBe('panic');
     expect(formatted.programMessage).toBe('BetTokenTransferFromFailed');
     expect(formatted.code).not.toBe('INTERNAL_ERROR');
+  });
+
+  // Real mainnet shape captured from PolyBaskets BasketMarket/CreateBasket
+  // with empty items (issue #55 reproduction). Two quirks present in
+  // production today: (1) `Result::unwrap, ` with comma+space instead of
+  // `()` — gear/sails version dependent; (2) double trailing apostrophe
+  // from layered `Panic occurred: '...'` + `panicked with '...'` quoting.
+  it('mainnet wrapper shape (Result::unwrap, with double trailing quote) strips cleanly', async () => {
+    const tb = makeFailingTxBuilder(
+      `8000: Runtime error: "Program terminated with a trap: 'Panic occurred: panicked with 'called \`Result::unwrap, \` on an \`Err\` value: NoItems''"`,
+    );
+
+    let caught: unknown;
+    try {
+      await calcAndClassify(tb);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as CliError).code).toBe('PROGRAM_ERROR');
+    expect((caught as CliError).meta?.reason).toBe('panic');
+    expect((caught as CliError).meta?.programMessage).toBe('NoItems');
+  });
+
+  // Variant with a payload (Debug-formatted tuple/struct fields) must pass
+  // through whole. Agents reading `programMessage` against a known set of
+  // variant names should still see the variant name as a prefix, and the
+  // payload is useful debug context.
+  it('variant with payload preserves payload in programMessage', async () => {
+    const tb = makeFailingTxBuilder(
+      "Program 0xabcd panicked with 'called `Result::unwrap()` on an `Err` value: InsufficientBalance(100)' at lib.rs:1",
+    );
+
+    let caught: unknown;
+    try {
+      await calcAndClassify(tb);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as CliError).meta?.programMessage).toBe('InsufficientBalance(100)');
+  });
+
+  // Custom `panic!("…")` calls (or `expect("…")` with a custom message) do
+  // not have the `Result::unwrap` wrapper. The classifier must pass them
+  // through unchanged — stripper only runs when the prefix matches.
+  it('custom panic message without Result::unwrap wrapper passes through', async () => {
+    const tb = makeFailingTxBuilder(
+      "Program 0xabcd panicked with 'oracle feed stale' at lib.rs:1",
+    );
+
+    let caught: unknown;
+    try {
+      await calcAndClassify(tb);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as CliError).meta?.programMessage).toBe('oracle feed stale');
   });
 
   it('inactive program during calculateGas surfaces as PROGRAM_ERROR with reason: inactive', async () => {

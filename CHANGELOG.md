@@ -20,6 +20,7 @@ Agent-UX hardening surfaced by a field report from a betting agent and an advers
 
 ### Fixed
 
+- **`programMessage` strips the `Result::unwrap` wrapper** (issue #55). Sails contracts using `#[export(unwrap_result)]` (the standard pattern for typed `Result<T, EnumError>` returns) emit panics in the form `called \`Result::unwrap()\` on an \`Err\` value: <Variant>`. The classifier now extracts the bare variant so agents can `case "$pm" in NoItems)` switch on it without substring matching. Variants with payloads (`InsufficientBalance(100)`) pass through whole; full original wrapper stays in `error` for debugging. Test fixture updated to the wrapped production shape so the regression guard is real, not synthetic.
 - **`package-lock.json` synced to v0.15.0.** The lockfile drifted at the v0.15.0 release.
 
 ## [0.15.0] - 2026-04-25
