@@ -9,7 +9,7 @@ Networking performance: every CLI invocation drops from ~2.8s to ~0.55s on warm 
 ### Added
 
 - **`--timing` global flag.** Emits per-stage NDJSON to stderr (`{stage, ms, ...}`) so any optimization claim can be measured objectively. Stages: `connect_begin`, `connect` (with `cacheHit`), `shutdown`, `total`. Zero overhead when flag absent (no `Date.now()` calls in hot path, no stderr writes).
-- **`vara-wallet metadata <list|clear>` subcommand.** Operational parity with `idl <list|remove|clear>`. Lets users inspect and reset the runtime metadata cache without poking at files.
+- **`vara-wallet metadata <list|clear [--yes]>` subcommand.** Operational parity with `idl <list|remove|clear>`. Lets users inspect and reset the runtime metadata cache without poking at files. `clear` is terraform-style: bare invocation previews `wouldRemove`; `--yes` commits.
 - **Runtime metadata cache** at `~/.vara-wallet/metadata-cache/<genesisHash>-<specVersion>.hex`. One file per chain × spec version, mode 0o600, capped at 3 most-recent entries per chain. Saves ~750ms per warm connect. Corrupt entries (bad magic prefix) are auto-detected and dropped on load — `@polkadot/api` is never handed garbage. If `GearApi.create` still rejects with a metadata-shaped error after the magic-byte gate (e.g. a future polkadot/api version mismatch), the cache is cleared and the connect retried once without it, so a poisoned entry can never permanently block the CLI. Mainnet and testnet entries are isolated by genesisHash.
 
 ### Changed
