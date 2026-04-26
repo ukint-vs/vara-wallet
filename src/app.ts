@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { setOutputOptions, installGlobalErrorHandler, outputError, CliError } from './utils';
+import { setOutputOptions, installGlobalErrorHandler, outputError, CliError, enableTiming, markStage, markTotal, fastExit } from './utils';
 import { disconnectApi } from './services/api';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
@@ -18,6 +18,7 @@ import { registerWatchCommand } from './commands/watch';
 import { registerDiscoverCommand } from './commands/discover';
 import { registerCallCommand } from './commands/call';
 import { registerIdlCommand } from './commands/idl';
+import { registerMetadataCommand } from './commands/metadata';
 import { registerVftCommand } from './commands/vft';
 import { registerVoucherCommand } from './commands/voucher';
 import { registerEncodeCommand } from './commands/encode';
@@ -50,6 +51,7 @@ program
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
+  .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
   .hook('preAction', () => {
     const opts = program.opts();
     setOutputOptions({
@@ -58,6 +60,9 @@ program
       quiet: opts.quiet,
       verbose: opts.verbose,
     });
+    if (opts.timing) {
+      enableTiming();
+    }
     if (opts.light) {
       process.env.VARA_LIGHT = '1';
     }
@@ -97,6 +102,7 @@ registerWatchCommand(program);
 registerDiscoverCommand(program);
 registerCallCommand(program);
 registerIdlCommand(program);
+registerMetadataCommand(program);
 registerVftCommand(program);
 registerVoucherCommand(program);
 registerEncodeCommand(program);
@@ -111,14 +117,18 @@ registerEventsCommand(program);
 // Register commands — Phase 5: DEX
 registerDexCommand(program);
 
-// Graceful shutdown (moved from api.ts so subscribe/keepAlive can override)
+// Graceful shutdown (moved from api.ts so subscribe/keepAlive can override).
+// Subscribe commands don't go through main()'s finally: they await
+// keepAlive(...) which only resolves on signal/timeout, and keepAlive's
+// own cleanup runs disconnectApi() before the action returns. By the
+// time main() reaches finally, the WS is already torn down by them.
 process.on('SIGINT', () => {
   disconnectApi();
-  process.exit(0);
+  fastExit(0);
 });
 process.on('SIGTERM', () => {
   disconnectApi();
-  process.exit(0);
+  fastExit(0);
 });
 
 async function main(): Promise<void> {
@@ -130,6 +140,9 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     disconnectApi();
+    markStage('shutdown');
+    markTotal();
+    fastExit(typeof process.exitCode === 'number' ? process.exitCode : 0);
   }
 }
 

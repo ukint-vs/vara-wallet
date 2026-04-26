@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Networking performance: every CLI invocation drops from ~2.8s to ~0.55s on warm runs (5.2x). Two roots — `@polkadot/api` keeps WS heartbeat timers alive ~1.7s after disconnect (we now exit immediately, draining stdout/stderr first), and `state_getMetadata` was being refetched on every connect (now cached on disk, keyed by `genesisHash-specVersion`, with auto-invalidation handled by polkadot/api on runtime upgrade).
+
+### Added
+
+- **`--timing` global flag.** Emits per-stage NDJSON to stderr (`{stage, ms, ...}`) so any optimization claim can be measured objectively. Stages: `connect_begin`, `connect` (with `cacheHit`), `shutdown`, `total`. Zero overhead when flag absent (no `Date.now()` calls in hot path, no stderr writes).
+- **`vara-wallet metadata <list|clear [--yes]>` subcommand.** Operational parity with `idl <list|remove|clear>`. Lets users inspect and reset the runtime metadata cache without poking at files. `clear` is terraform-style: bare invocation previews `wouldRemove`; `--yes` commits.
+- **Runtime metadata cache** at `~/.vara-wallet/metadata-cache/<genesisHash>-<specVersion>.hex`. One file per chain × spec version, mode 0o600, capped at 3 most-recent entries per chain. Saves ~750ms per warm connect. Corrupt entries (bad magic prefix) are auto-detected and dropped on load — `@polkadot/api` is never handed garbage. If `GearApi.create` still rejects with a metadata-shaped error after the magic-byte gate (e.g. a future polkadot/api version mismatch), the cache is cleared and the connect retried once without it, so a poisoned entry can never permanently block the CLI. Mainnet and testnet entries are isolated by genesisHash.
+
+### Changed
+
+- **CLI exits immediately after disconnect.** `fastExit()` (in `src/utils/fast-exit.ts`) is called from main()'s finally block, SIGINT/SIGTERM handlers, and the subscribe global-timeout path after `disconnectApi()`, draining stdout/stderr buffers via `writableNeedDrain` before terminating. Previously the process hung ~1.7s waiting for `@polkadot/api`'s heartbeat timers to clear. Pipes (`vara-wallet ... | jq`) still receive full output — the drain pattern is correctness-safe. Subscribe streams are unaffected (they `await keepAlive(...)` which only resolves on signal/timeout/count, so the fast-exit fires only after the streamed work is done).
+
+### Fixed
+
 Agent-UX hardening surfaced by a field report from a betting agent and an adversarial cross-model review (Codex). Three layers: structured gas-estimate errors, arity-aware args validation, sharper IDL diagnostics.
 
 ### Added
