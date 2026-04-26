@@ -72,6 +72,8 @@ vara-wallet balance kGioe8b7bbEPbv1r1xbdmLbKJG9RvhUkN2VUBg9WLsNg33cp2
 vara-wallet program info 0x1234...
 
 # Query a Sails program (read-only)
+# --args takes a JSON ARRAY of positional values. Multi-arg methods MUST use array form.
+# 1-arg struct methods also accept the bare object: '{"field": ...}' (wrapped automatically).
 vara-wallet call 0x1234... Service/QueryMethod --args '[]'
 
 # List programs on chain
@@ -324,7 +326,37 @@ vara-wallet transfer <to> --all        # sends full balance, closes the sender's
 
 ## Error Handling
 
-Every error returns `{ error: "message", code: "ERROR_CODE" }` on stderr.
+Every error returns structured JSON on stderr. The minimum shape:
+
+```json
+{ "error": "<full text>", "code": "ERROR_CODE" }
+```
+
+For program-execution failures (panic during call/estimate, contract revert), the error includes structured subcodes you can switch on directly without parsing English:
+
+```json
+{
+  "error": "Program execution failed: 8000: Runtime error: \"...panicked with 'BetTokenTransferFromFailed'...\"",
+  "code": "PROGRAM_ERROR",
+  "reason": "panic",
+  "programMessage": "BetTokenTransferFromFailed"
+}
+```
+
+`reason` is one of: `panic` (Result::unwrap on Err, including Sails error variants), `unreachable` (gear runtime trap, includes "destination is not a program" cases), `inactive` (program terminated), `not_found` (no program at destination, gear-node spec varies). `programMessage` is the contract-level error variant name for `panic` cases.
+
+For agent loops, prefer:
+
+```bash
+ERR=$(... 2>&1 1>/dev/null)
+case "$(echo "$ERR" | jq -r '.programMessage // ""')" in
+  BetTokenTransferFromFailed) approve_chip ;;
+  AmountBelowMinBet)          increase_amount ;;
+  *)                          handle_generic ;;
+esac
+```
+
+over regex matching on `.error`.
 
 **Common errors and what to do:**
 
@@ -333,10 +365,12 @@ Every error returns `{ error: "message", code: "ERROR_CODE" }` on stderr.
 | `PASSPHRASE_REQUIRED` | Encrypted wallet, no passphrase | Ensure `~/.vara-wallet/.passphrase` exists |
 | `DECRYPT_FAILED` | Wrong passphrase | Check passphrase file content |
 | `NO_ACCOUNT` | No signing account | Add `--account <name>` or `--seed` |
+| `INVALID_ARGS_FORMAT` | `--args` shape mismatch | Use a JSON array of positional values: `["0x...", "100"]`. 1-arg struct methods accept either `'{"field":...}'` or `'[{"field":...}]'`; 2+-arg methods require array. |
+| `INVALID_ADDRESS` | Wrong shape for `actor_id` field | Pass a hex string (`0x` + 64 chars), SS58 address, or 32-byte array. Field name is in the message: `Invalid ActorId for "<field>": ...`. |
 | `TX_TIMEOUT` | Transaction didn't land in 60s | Retry — network may be congested |
 | `TX_FAILED` | On-chain failure | Check events in output for details |
-| `IDL_NOT_FOUND` | No Sails IDL for program | Provide `--idl <path>` or set `VARA_META_STORAGE` |
-| `PROGRAM_ERROR` | Program panicked/failed | Check error message for program-side issue |
+| `IDL_NOT_FOUND` | No Sails IDL available | If error says "This is a v1 contract": `vara-wallet idl import <path.idl> --program <id>`. Otherwise pass `--idl <path>` for one-off use. |
+| `PROGRAM_ERROR` | Program execution failed (panic/error variant) | Read `meta.programMessage` for the contract-level cause. State problems (e.g. `BetTokenTransferFromFailed`) are not gas problems — fix the state, do not increase `--gas-limit`. |
 
 ## Addresses
 

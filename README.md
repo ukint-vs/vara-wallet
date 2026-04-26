@@ -435,7 +435,9 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `NO_ACCOUNT` | No account configured |
 | `TX_TIMEOUT` | Transaction not included in 60s |
 | `TX_FAILED` | On-chain extrinsic failure |
-| `IDL_NOT_FOUND` | No Sails IDL available |
+| `IDL_NOT_FOUND` | No Sails IDL available. Distinguishes v1 contracts (no `sails:idl` WASM section — import manually) from chain-unavailable cases (RPC down, no program) |
+| `INVALID_ARGS_FORMAT` | `--args` shape mismatch. Sails methods take positional args; pass as JSON array. 1-arg struct methods also accept bare `{...}` (wrapped automatically) |
+| `INVALID_ADDRESS` | `actor_id` field received a non-string non-array value. Message names the offending field: `Invalid ActorId for "<name>": ...` |
 | `METHOD_NOT_FOUND` | Method not in Sails IDL |
 | `DEX_FACTORY_NOT_CONFIGURED` | No factory address set |
 | `DEX_SERVICE_NOT_FOUND` | DEX method not found in IDL |
@@ -455,7 +457,7 @@ The `--hex` flag treats input as 0x-prefixed hex bytes (strict validation: even-
 | `INVALID_CODE_ID` | `--code-id` argument isn't a 32-byte hex string |
 | `AMBIGUOUS_EVENT` | Bare Sails event name resolves to multiple services — qualify as `Service/Event` |
 | `FAUCET_ERROR` | Faucet request failed |
-| `PROGRAM_ERROR` | Sails program execution failed (panic/error) |
+| `PROGRAM_ERROR` | Sails program execution failed (panic/error). Includes `meta.reason` (`panic` / `unreachable` / `inactive` / `not_found`) and `meta.programMessage` (contract error variant name) for structured matching |
 | `FAUCET_LIMIT` | Faucet daily/hourly limit reached |
 | `RATE_LIMITED` | Too many requests (429) |
 | `AUTH_ERROR` | Signature verification failed |
