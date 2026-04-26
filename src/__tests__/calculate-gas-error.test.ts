@@ -104,6 +104,33 @@ describe('calculateGas error classification', () => {
     expect((caught as CliError).meta?.reason).toBe('not_found');
   });
 
+  // Pinned: on current Vara mainnet (spec 11000+), calculateGas.handle to a
+  // non-program destination returns "entered unreachable code: Failed to get
+  // last message from the queue", NOT "Program not found". message.ts must
+  // recognize this AND classify it as the missing-program case so that
+  // `vara-wallet message send <user-account>` keeps working with auto-gas.
+  // Found by smoke testing against rpc.vara.network during the agent UX
+  // hardening PR; older wording-only narrow catch broke this path.
+  it('"unreachable code: Failed to get last message from the queue" classifies as reason: unreachable', async () => {
+    const tb = makeFailingTxBuilder(
+      `8000: Runtime error: "Internal error: entered unreachable code 'Failed to get last message from the queue'"`,
+    );
+
+    let caught: unknown;
+    try {
+      await calcAndClassify(tb);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as CliError).code).toBe('PROGRAM_ERROR');
+    expect((caught as CliError).meta?.reason).toBe('unreachable');
+    // The substring `Failed to get last message from the queue` must be
+    // preserved in the formatted error so message.ts:98 can recognize it
+    // and apply the gas=0 fallback for user-account destinations.
+    expect((caught as CliError).message).toMatch(/Failed to get last message from the queue/);
+  });
+
   it('"ProgramNotFound" pallet variant also classifies as not_found', async () => {
     const tb = makeFailingTxBuilder('Module error: ProgramNotFound');
 

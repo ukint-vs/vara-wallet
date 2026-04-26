@@ -107,11 +107,22 @@ export function registerMessageCommand(program: Command): void {
           verbose(`Gas limit: ${gasLimit}`);
         } catch (err) {
           // `message send` accepts both program and user-account destinations.
-          // For user accounts, calculateGas.handle returns a "Program not found"
-          // RPC error; that's the legit case where gas=0 is correct.
-          // For everything else (program panic, transport error), surface it.
+          // For user accounts, calculateGas.handle reports "no program at this
+          // destination" via a few different gear-node phrasings depending on
+          // spec version: explicit "Program not found" (older paths), or, on
+          // current Vara mainnet (spec 11000+), an "entered unreachable code:
+          // Failed to get last message from the queue" trap. Both mean the
+          // same thing: there is no program to estimate gas against, so we
+          // fall back to gasLimit=0 and let the system extrinsic carry the
+          // value transfer. For everything else (real program panic, transport
+          // error), rethrow with structured info.
           const cli = classifyProgramError(err);
-          if (cli.meta?.reason === 'not_found') {
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const isMissingProgram =
+            cli.meta?.reason === 'not_found' ||
+            (cli.meta?.reason === 'unreachable' &&
+              /Failed to get last message from the queue/i.test(rawMsg));
+          if (isMissingProgram) {
             verbose('Destination is not a program, using gas limit 0');
             gasLimit = 0n;
           } else {
