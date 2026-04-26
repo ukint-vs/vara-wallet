@@ -1,5 +1,5 @@
 import { GearApi } from '@gear-js/api';
-import { verbose, CliError } from '../utils';
+import { verbose, CliError, markStage } from '../utils';
 import { readConfig } from './config';
 import { SmoldotProvider } from './light-client';
 
@@ -55,6 +55,7 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       });
     } else {
       verbose(`Connecting to ${endpoint}`);
+      markStage('connect_begin', { endpoint });
       const connectPromise = withTimeout(
         GearApi.create({ providerAddress: endpoint }),
         CONNECTION_TIMEOUT_MS,
@@ -62,6 +63,7 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       ).then((api) => {
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);
+        markStage('connect', { spec: api.specVersion });
         return api;
       });
       apiPromise = connectPromise.catch((err) => {

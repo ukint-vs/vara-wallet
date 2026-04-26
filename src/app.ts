@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { setOutputOptions, installGlobalErrorHandler, outputError, CliError } from './utils';
+import { setOutputOptions, installGlobalErrorHandler, outputError, CliError, enableTiming, markStage, markTotal } from './utils';
 import { disconnectApi } from './services/api';
 import { registerInitCommand } from './commands/init';
 import { registerWalletCommand } from './commands/wallet';
@@ -50,6 +50,7 @@ program
   .option('--quiet', 'suppress all output except errors')
   .option('--verbose', 'show verbose debug info on stderr')
   .option('--network <name>', 'network shorthand: mainnet, testnet, or local')
+  .option('--timing', 'emit per-stage timing NDJSON to stderr (no-op without flag)')
   .hook('preAction', () => {
     const opts = program.opts();
     setOutputOptions({
@@ -58,6 +59,9 @@ program
       quiet: opts.quiet,
       verbose: opts.verbose,
     });
+    if (opts.timing) {
+      enableTiming();
+    }
     if (opts.light) {
       process.env.VARA_LIGHT = '1';
     }
@@ -130,6 +134,8 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     disconnectApi();
+    markStage('shutdown');
+    markTotal();
   }
 }
 
