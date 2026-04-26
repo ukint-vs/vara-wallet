@@ -4,30 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Networking performance: every CLI invocation drops from ~2.8s to ~0.55s on warm runs (5.2x). Two roots — `@polkadot/api` keeps WS heartbeat timers alive ~1.7s after disconnect (we now exit immediately, draining stdout/stderr first), and `state_getMetadata` was being refetched on every connect (now cached on disk, keyed by `genesisHash-specVersion`, with auto-invalidation handled by polkadot/api on runtime upgrade).
+## [0.16.0] - 2026-04-26
+
+Two themes since 0.15.0: **networking performance** (PR #56 — every CLI invocation drops from ~2.8s to ~0.55s on warm runs, 5.2x) and **agent-UX hardening** (PR #54 — gas-error classification, arity-aware args validation, sharper IDL diagnostics). The networking work has two roots: `@polkadot/api` keeps WS heartbeat timers alive ~1.7s after disconnect (we now exit immediately, draining stdout/stderr first), and `state_getMetadata` was being refetched on every connect (now cached on disk, keyed by `genesisHash-specVersion`, with auto-invalidation handled by polkadot/api on runtime upgrade). The agent-UX work was surfaced by a field report from a betting agent and an adversarial cross-model review (Codex).
 
 ### Added
 
+**Networking performance**
 - **`--timing` global flag.** Emits per-stage NDJSON to stderr (`{stage, ms, ...}`) so any optimization claim can be measured objectively. Stages: `connect_begin`, `connect` (with `cacheHit`), `shutdown`, `total`. Zero overhead when flag absent (no `Date.now()` calls in hot path, no stderr writes).
 - **`vara-wallet metadata <list|clear [--yes]>` subcommand.** Operational parity with `idl <list|remove|clear>`. Lets users inspect and reset the runtime metadata cache without poking at files. `clear` is terraform-style: bare invocation previews `wouldRemove`; `--yes` commits.
 - **Runtime metadata cache** at `~/.vara-wallet/metadata-cache/<genesisHash>-<specVersion>.hex`. One file per chain × spec version, mode 0o600, capped at 3 most-recent entries per chain. Saves ~750ms per warm connect. Corrupt entries (bad magic prefix) are auto-detected and dropped on load — `@polkadot/api` is never handed garbage. If `GearApi.create` still rejects with a metadata-shaped error after the magic-byte gate (e.g. a future polkadot/api version mismatch), the cache is cleared and the connect retried once without it, so a poisoned entry can never permanently block the CLI. Mainnet and testnet entries are isolated by genesisHash.
 
-### Changed
-
-- **CLI exits immediately after disconnect.** `fastExit()` (in `src/utils/fast-exit.ts`) is called from main()'s finally block, SIGINT/SIGTERM handlers, and the subscribe global-timeout path after `disconnectApi()`, draining stdout/stderr buffers via `writableNeedDrain` before terminating. Previously the process hung ~1.7s waiting for `@polkadot/api`'s heartbeat timers to clear. Pipes (`vara-wallet ... | jq`) still receive full output — the drain pattern is correctness-safe. Subscribe streams are unaffected (they `await keepAlive(...)` which only resolves on signal/timeout/count, so the fast-exit fires only after the streamed work is done).
-
-### Fixed
-
-Agent-UX hardening surfaced by a field report from a betting agent and an adversarial cross-model review (Codex). Three layers: structured gas-estimate errors, arity-aware args validation, sharper IDL diagnostics.
-
-### Added
-
+**Agent-UX hardening**
 - **`INVALID_ARGS_FORMAT` error code** for `call`, `program upload/create`, and `encode --method`. Sails methods take positional args; passing a top-level JSON object (named-arg shorthand) to a multi-arg method now errors before reaching the codec instead of silently wrapping into `[obj]` and producing cryptic codec errors. 1-arg struct methods preserve the bare-object shorthand: `'{"field":...}'` and `'[{"field":...}]'` both work.
 - **`INVALID_ADDRESS` for non-string `actor_id` field values.** Plain objects passed where an `actor_id` is expected now error at the codec layer with a field-named message: `Invalid ActorId for "<field>": expected hex string, SS58 address, or 32-byte array, got object: {...}`. Replaces the previous "Expected 32 bytes, found 15 bytes" mystery.
 - **Structured `meta` on `PROGRAM_ERROR`.** When `calculateGas` reverts because the program panicked or hit `unreachable`, the error now includes `reason` (`panic` / `unreachable` / `inactive` / `not_found`) and `programMessage` (contract error variant name). Agents can switch on `.programMessage` directly instead of regex-matching English.
 
 ### Changed
 
+**Networking performance**
+- **CLI exits immediately after disconnect.** `fastExit()` (in `src/utils/fast-exit.ts`) is called from main()'s finally block, SIGINT/SIGTERM handlers, and the subscribe global-timeout path after `disconnectApi()`, draining stdout/stderr buffers via `writableNeedDrain` before terminating. Previously the process hung ~1.7s waiting for `@polkadot/api`'s heartbeat timers to clear. Pipes (`vara-wallet ... | jq`) still receive full output — the drain pattern is correctness-safe. Subscribe streams are unaffected (they `await keepAlive(...)` which only resolves on signal/timeout/count, so the fast-exit fires only after the streamed work is done).
+
+**Agent-UX hardening**
 - **`IDL_NOT_FOUND` error wording is now precise.** When the on-chain WASM is readable but has no `sails:idl` custom section, the error explicitly says "This is a v1 contract" and points at `vara-wallet idl import`. The previous message hedged "may be v1 or sails < 1.0.0-beta.1" with no way to tell.
 - **`calculateGas` failures are classified everywhere.** Wrapped at all 8 auto-calc sites (call, program init upload/create, message reply, dex approve/reset/exec, vft exec). Cross-program transfer panics in PolyBaskets / VFT contexts (e.g. `BetTokenTransferFromFailed` from insufficient allowance) now surface with `code: PROGRAM_ERROR + reason: panic + programMessage: <variant>` instead of opaque "gas calculation failed" text.
 - **`message send` to a user-account destination still works** (gas=0 fallback preserved). The handle path now uses targeted error classification: `reason: not_found` (older gear-node spec) and `reason: unreachable` with the substring `Failed to get last message from the queue` (gear-node spec 11000+) both fall back to `gasLimit = 0n`. Real program panics rethrow with structured info instead of being silently swallowed.
