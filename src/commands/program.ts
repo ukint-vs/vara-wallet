@@ -71,7 +71,24 @@ export async function resolveInitDescriptor(options: InitOptions): Promise<{ pay
       args: options.args,
       argsFile: options.argsFile,
     });
-    args = Array.isArray(parsed) ? parsed : [parsed];
+    // Reject non-array top-level JSON. Constructor args are positional;
+    // a named-arg object would silently wrap and produce cryptic codec
+    // errors downstream. See call.ts for the same guard.
+    if (!Array.isArray(parsed)) {
+      const got = parsed === null
+        ? 'null'
+        : typeof parsed === 'object'
+          ? 'object'
+          : typeof parsed;
+      const preview = JSON.stringify(parsed) ?? String(parsed);
+      const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+      throw new CliError(
+        `Args must be a JSON array of positional values, e.g. ["0x..."]. ` +
+        `Got ${got}: ${truncated}`,
+        'INVALID_ARGS_FORMAT',
+      );
+    }
+    args = parsed;
   }
 
   const expectedArgs = ctor.args?.length ?? 0;

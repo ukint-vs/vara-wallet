@@ -84,6 +84,23 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
+        // Reject named-arg objects ({"address": "0x..."}) here — Sails
+        // methods take positional args. Scalars (strings, numbers) are
+        // legitimately wrapped to [value] for single-arg methods, so only
+        // plain objects are rejected; arrays and scalars pass through.
+        if (
+          parsedValue !== null &&
+          typeof parsedValue === 'object' &&
+          !Array.isArray(parsedValue)
+        ) {
+          const preview = JSON.stringify(parsedValue) ?? String(parsedValue);
+          const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+          throw new CliError(
+            `Args must be a JSON array of positional values or a scalar, e.g. ["0x..."]. ` +
+            `Got object: ${truncated}`,
+            'INVALID_ARGS_FORMAT',
+          );
+        }
         const rawArgs = Array.isArray(parsedValue) ? parsedValue : [parsedValue];
         const args = coerceArgsAuto(rawArgs, func.args, sails, serviceName);
         const encoded = func.encodePayload(...args);

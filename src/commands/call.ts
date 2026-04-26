@@ -75,7 +75,27 @@ export function registerCallCommand(program: Command): void {
         argsFile: options.argsFile,
         argsDefault: '[]',
       });
-      let args: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      // Reject non-array top-level JSON. Without this guard, a user passing
+      // `--args '{"address":"0x..."}'` would get the value silently wrapped
+      // as `[{"address":"0x..."}]` and downstream codecs would emit a cryptic
+      // "Expected 32 bytes, found 15 bytes" once the object hit the ActorId
+      // path. Sails methods take POSITIONAL args; named-arg objects are
+      // never the right shape.
+      if (!Array.isArray(parsed)) {
+        const got = parsed === null
+          ? 'null'
+          : typeof parsed === 'object'
+            ? 'object'
+            : typeof parsed;
+        const preview = JSON.stringify(parsed) ?? String(parsed);
+        const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+        throw new CliError(
+          `Args must be a JSON array of positional values, e.g. ["0x..."]. ` +
+          `Got ${got}: ${truncated}`,
+          'INVALID_ARGS_FORMAT',
+        );
+      }
+      let args: unknown[] = parsed;
 
       // Check if it's a query or function
       const isQuery = methodName in service.queries;
