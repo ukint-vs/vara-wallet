@@ -2,6 +2,7 @@ import { GearApi } from '@gear-js/api';
 import { verbose, CliError, markStage } from '../utils';
 import { readConfig } from './config';
 import { SmoldotProvider } from './light-client';
+import { loadMetadataCache, saveMetadataIfNew } from './metadata-cache';
 
 let apiPromise: Promise<GearApi> | null = null;
 let apiInstance: GearApi | null = null;
@@ -55,15 +56,25 @@ export async function getApi(wsEndpoint?: string): Promise<GearApi> {
       });
     } else {
       verbose(`Connecting to ${endpoint}`);
-      markStage('connect_begin', { endpoint });
+      // Load on-disk metadata cache. polkadot/api will skip the
+      // state_getMetadata RPC if a `${genesisHash}-${specVersion}` key
+      // matches the chain it's about to connect to. Auto-invalidates
+      // via state_subscribeRuntimeVersion on a runtime upgrade.
+      const cachedMetadata = loadMetadataCache();
+      const cachedKeyCount = Object.keys(cachedMetadata).length;
+      markStage('connect_begin', { endpoint, cachedMetadataKeys: cachedKeyCount });
       const connectPromise = withTimeout(
-        GearApi.create({ providerAddress: endpoint }),
+        GearApi.create({ providerAddress: endpoint, metadata: cachedMetadata }),
         CONNECTION_TIMEOUT_MS,
         `Connection to ${endpoint} timed out after 10s. Check your network or VARA_WS setting.`,
       ).then((api) => {
         apiInstance = api;
         verbose(`Connected to ${endpoint} (spec: ${api.specVersion})`);
-        markStage('connect', { spec: api.specVersion });
+        const key = `${api.genesisHash.toHex()}-${api.runtimeVersion.specVersion.toString()}`;
+        const cacheHit = cachedMetadata[key] !== undefined;
+        markStage('connect', { spec: api.specVersion, cacheHit });
+        // Best-effort cache write. Idempotent; only writes if missing.
+        saveMetadataIfNew(api);
         return api;
       });
       apiPromise = connectPromise.catch((err) => {
