@@ -23,10 +23,12 @@ import { CliError } from '../utils/errors';
  * a live runtime; this is the unit pin.
  */
 
-describe('top-level JSON args format validation', () => {
-  // Mirrors the guard now in call.ts:78-99 and program.ts (constructor path).
-  function assertArgsArray(parsed: unknown): asserts parsed is unknown[] {
-    if (!Array.isArray(parsed)) {
+describe('top-level JSON args format validation (arity-aware)', () => {
+  // Mirrors the guard now in call.ts, program.ts, and encode.ts.
+  // A 1-arg method legitimately accepts a bare scalar/object (wrapped to
+  // [value]); 0-arg or multi-arg methods MUST receive a JSON array.
+  function assertArgsShape(parsed: unknown, arity: number, methodName = 'M'): unknown[] {
+    if (!Array.isArray(parsed) && arity !== 1) {
       const got = parsed === null
         ? 'null'
         : typeof parsed === 'object'
@@ -35,17 +37,18 @@ describe('top-level JSON args format validation', () => {
       const preview = JSON.stringify(parsed) ?? String(parsed);
       const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
       throw new CliError(
-        `Args must be a JSON array of positional values, e.g. ["0x..."]. ` +
+        `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
         `Got ${got}: ${truncated}`,
         'INVALID_ARGS_FORMAT',
       );
     }
+    return Array.isArray(parsed) ? parsed : [parsed];
   }
 
-  it('named-arg object {"address":"0x..."} throws INVALID_ARGS_FORMAT', () => {
+  it('multi-arg method: named-arg object throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsArray({ address: '0x1234' });
+      assertArgsShape({ address: '0x1234' }, 2);
     } catch (err) {
       caught = err;
     }
@@ -53,42 +56,55 @@ describe('top-level JSON args format validation', () => {
     expect((caught as CliError).code).toBe('INVALID_ARGS_FORMAT');
     expect((caught as CliError).message).toContain('Got object');
     expect((caught as CliError).message).toContain('address');
+    expect((caught as CliError).message).toContain('expects 2 positional');
   });
 
-  it('scalar (string) throws INVALID_ARGS_FORMAT for the call path', () => {
+  it('multi-arg method: scalar (string) throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsArray('0x1234');
+      assertArgsShape('0x1234', 2);
     } catch (err) {
       caught = err;
     }
-    expect(caught).toBeInstanceOf(CliError);
     expect((caught as CliError).code).toBe('INVALID_ARGS_FORMAT');
     expect((caught as CliError).message).toContain('Got string');
   });
 
-  it('null throws INVALID_ARGS_FORMAT', () => {
+  it('zero-arg method: any non-array throws INVALID_ARGS_FORMAT', () => {
     let caught: unknown;
     try {
-      assertArgsArray(null);
+      assertArgsShape(null, 0);
     } catch (err) {
       caught = err;
     }
     expect((caught as CliError).code).toBe('INVALID_ARGS_FORMAT');
-    expect((caught as CliError).message).toContain('Got null');
+    expect((caught as CliError).message).toContain('expects 0 positional');
   });
 
-  it('valid array passes through', () => {
-    expect(() => assertArgsArray(['0x1234'])).not.toThrow();
-    expect(() => assertArgsArray([])).not.toThrow();
-    expect(() => assertArgsArray([1, 2, 3])).not.toThrow();
+  it('1-arg method: object passes through as wrapped struct arg', () => {
+    // Historical struct-arg shorthand: --args '{"to":"0x..","amount":1}'
+    // for Send(transfer: Transfer). The codec layer (tryActorIdToHex etc.)
+    // catches type mismatches at the right layer with field-named errors.
+    const result = assertArgsShape({ to: '0x1234', amount: 1 }, 1);
+    expect(result).toEqual([{ to: '0x1234', amount: 1 }]);
+  });
+
+  it('1-arg method: scalar string passes through as wrapped value', () => {
+    const result = assertArgsShape('0x1234', 1);
+    expect(result).toEqual(['0x1234']);
+  });
+
+  it('valid array always passes through (any arity)', () => {
+    expect(assertArgsShape(['0x1234'], 1)).toEqual(['0x1234']);
+    expect(assertArgsShape([], 0)).toEqual([]);
+    expect(assertArgsShape([1, 2, 3], 3)).toEqual([1, 2, 3]);
   });
 
   it('long object preview is truncated with ellipsis', () => {
     const big = { x: 'a'.repeat(500) };
     let caught: unknown;
     try {
-      assertArgsArray(big);
+      assertArgsShape(big, 2);
     } catch (err) {
       caught = err;
     }

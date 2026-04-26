@@ -84,14 +84,19 @@ export function registerEncodeCommand(program: Command): void {
           throw new CliError(`${prefix}Method "${methodName}" not found in "${serviceName}"`, 'METHOD_NOT_FOUND');
         }
 
-        // Reject named-arg objects ({"address": "0x..."}) here — Sails
-        // methods take positional args. Scalars (strings, numbers) are
-        // legitimately wrapped to [value] for single-arg methods, so only
-        // plain objects are rejected; arrays and scalars pass through.
+        // Arity-aware top-level JSON validation. Sails methods take positional
+        // args; for multi-arg or zero-arg methods, a non-array top-level value
+        // is wrong. 1-arg methods legitimately accept a bare scalar OR object
+        // that gets wrapped into [value] — preserves the historical struct-arg
+        // shorthand (e.g. `encode _ '{"to":"0x..","amount":1}' --method S/Send`
+        // for `Send(t: Transfer)`). Type mismatches at primitive args are
+        // caught at the codec layer (hex-bytes.ts:tryActorIdToHex).
+        const arity = func.args?.length ?? 0;
         if (
           parsedValue !== null &&
           typeof parsedValue === 'object' &&
-          !Array.isArray(parsedValue)
+          !Array.isArray(parsedValue) &&
+          arity !== 1
         ) {
           const preview = JSON.stringify(parsedValue) ?? String(parsedValue);
           const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
@@ -99,7 +104,7 @@ export function registerEncodeCommand(program: Command): void {
           // utils/errors.ts redacts any unbroken run of 12+ word tokens, so
           // this message uses commas to break the run early.
           throw new CliError(
-            `Args must be a JSON array, e.g. ["0x..."], or a scalar. ` +
+            `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
             `Got object: ${truncated}`,
             'INVALID_ARGS_FORMAT',
           );

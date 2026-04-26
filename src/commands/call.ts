@@ -75,29 +75,9 @@ export function registerCallCommand(program: Command): void {
         argsFile: options.argsFile,
         argsDefault: '[]',
       });
-      // Reject non-array top-level JSON. Without this guard, a user passing
-      // `--args '{"address":"0x..."}'` would get the value silently wrapped
-      // as `[{"address":"0x..."}]` and downstream codecs would emit a cryptic
-      // "Expected 32 bytes, found 15 bytes" once the object hit the ActorId
-      // path. Sails methods take POSITIONAL args; named-arg objects are
-      // never the right shape.
-      if (!Array.isArray(parsed)) {
-        const got = parsed === null
-          ? 'null'
-          : typeof parsed === 'object'
-            ? 'object'
-            : typeof parsed;
-        const preview = JSON.stringify(parsed) ?? String(parsed);
-        const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-        throw new CliError(
-          `Args must be a JSON array of positional values, e.g. ["0x..."]. ` +
-          `Got ${got}: ${truncated}`,
-          'INVALID_ARGS_FORMAT',
-        );
-      }
-      let args: unknown[] = parsed;
 
-      // Check if it's a query or function
+      // Check if it's a query or function (resolve before arity-aware
+      // arg validation below)
       const isQuery = methodName in service.queries;
       const isFunction = methodName in service.functions;
 
@@ -115,6 +95,32 @@ export function registerCallCommand(program: Command): void {
           'METHOD_NOT_FOUND',
         );
       }
+
+      // Arity-aware top-level JSON validation. Sails methods take
+      // POSITIONAL args, but a 1-arg method legitimately accepts a bare
+      // scalar/object that gets wrapped into [value] (preserves the
+      // historical struct-arg shorthand: `--args '{"to":..., "amount":1}'`
+      // for `Send(transfer: Transfer)`). For 0-arg or multi-arg methods,
+      // a non-array top-level value is always wrong. Type mismatches
+      // (e.g. object passed to a primitive arg) are caught at the codec
+      // layer with field-named errors (see hex-bytes.ts:tryActorIdToHex).
+      const methodObj = isQuery ? service.queries[methodName] : service.functions[methodName];
+      const arity = methodObj.args?.length ?? 0;
+      if (!Array.isArray(parsed) && arity !== 1) {
+        const got = parsed === null
+          ? 'null'
+          : typeof parsed === 'object'
+            ? 'object'
+            : typeof parsed;
+        const preview = JSON.stringify(parsed) ?? String(parsed);
+        const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
+        throw new CliError(
+          `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
+          `Got ${got}: ${truncated}`,
+          'INVALID_ARGS_FORMAT',
+        );
+      }
+      let args: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
 
       if (isQuery) {
         if (options.voucher) {

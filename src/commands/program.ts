@@ -71,10 +71,13 @@ export async function resolveInitDescriptor(options: InitOptions): Promise<{ pay
       args: options.args,
       argsFile: options.argsFile,
     });
-    // Reject non-array top-level JSON. Constructor args are positional;
-    // a named-arg object would silently wrap and produce cryptic codec
-    // errors downstream. See call.ts for the same guard.
-    if (!Array.isArray(parsed)) {
+    // Arity-aware top-level JSON validation. 1-arg constructors legitimately
+    // accept a bare scalar/object that gets wrapped (preserves the historical
+    // struct-config shorthand: `--args '{"admin":"0x..."}'` for `New(cfg: Config)`).
+    // For 0-arg or multi-arg constructors, a non-array top-level value is wrong.
+    // Type mismatches caught at the codec layer (hex-bytes.ts).
+    const arity = ctor.args?.length ?? 0;
+    if (!Array.isArray(parsed) && arity !== 1) {
       const got = parsed === null
         ? 'null'
         : typeof parsed === 'object'
@@ -83,12 +86,12 @@ export async function resolveInitDescriptor(options: InitOptions): Promise<{ pay
       const preview = JSON.stringify(parsed) ?? String(parsed);
       const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
       throw new CliError(
-        `Args must be a JSON array of positional values, e.g. ["0x..."]. ` +
+        `Constructor "${initName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
         `Got ${got}: ${truncated}`,
         'INVALID_ARGS_FORMAT',
       );
     }
-    args = parsed;
+    args = Array.isArray(parsed) ? parsed : [parsed];
   }
 
   const expectedArgs = ctor.args?.length ?? 0;
