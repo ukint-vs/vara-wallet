@@ -92,20 +92,23 @@ export function registerEncodeCommand(program: Command): void {
         // for `Send(t: Transfer)`). Type mismatches at primitive args are
         // caught at the codec layer (hex-bytes.ts:tryActorIdToHex).
         const arity = func.args?.length ?? 0;
-        if (
-          parsedValue !== null &&
-          typeof parsedValue === 'object' &&
-          !Array.isArray(parsedValue) &&
-          arity !== 1
-        ) {
+        // Match call.ts / program.ts: reject any non-array top-level value
+        // for 0-arg or multi-arg methods. 1-arg methods preserve the
+        // bare-scalar/struct shorthand (wrapped to [value] below). The
+        // narrower object-only check here previously let strings, numbers,
+        // and null slip through and produce cryptic codec errors. Caught
+        // by gemini-code-assist on PR #54.
+        if (!Array.isArray(parsedValue) && arity !== 1) {
+          const got = parsedValue === null
+            ? 'null'
+            : typeof parsedValue === 'object'
+              ? 'object'
+              : typeof parsedValue;
           const preview = JSON.stringify(parsedValue) ?? String(parsedValue);
           const truncated = preview.length > 100 ? preview.slice(0, 100) + '...' : preview;
-          // Wording kept short on purpose: the seed/mnemonic sanitizer in
-          // utils/errors.ts redacts any unbroken run of 12+ word tokens, so
-          // this message uses commas to break the run early.
           throw new CliError(
             `Method "${methodName}" expects ${arity} positional arg(s); pass them as a JSON array, e.g. ["0x..."]. ` +
-            `Got object: ${truncated}`,
+            `Got ${got}: ${truncated}`,
             'INVALID_ARGS_FORMAT',
           );
         }
