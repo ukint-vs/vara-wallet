@@ -115,14 +115,48 @@ registerEventsCommand(program);
 // Register commands — Phase 5: DEX
 registerDexCommand(program);
 
+/**
+ * Drain stdout/stderr before terminating. `process.exit()` does not wait
+ * for pending writes on a pipe (Node docs: "force the process to exit as
+ * quickly as possible even if there are still asynchronous operations
+ * pending"). Without this, `vara-wallet ... | jq` can lose the last chunk
+ * of output. TTY writes are synchronous so the drain is a no-op there.
+ *
+ * Subscribe commands don't reach this path: they `await keepAlive(...)`
+ * which only resolves on signal/timeout, and keepAlive's own cleanup
+ * runs `disconnectApi()` before letting the action return. By the time
+ * main()'s finally block fires, the WS is already torn down by them.
+ *
+ * Why exit at all? @polkadot/api keeps heartbeat timers and reconnect
+ * schedulers alive ~1.7s after `apiInstance.disconnect()` is called.
+ * Natural Node exit waits for those handles, adding 60% to every
+ * invocation's wall clock with no user-visible work happening.
+ */
+function fastExit(code: number): void {
+  const finish = (): void => process.exit(code);
+  // Drain stderr first (verbose logs, --timing events). Then stdout.
+  const drainStdout = (): void => {
+    if (process.stdout.writableNeedDrain) {
+      process.stdout.once('drain', finish);
+    } else {
+      finish();
+    }
+  };
+  if (process.stderr.writableNeedDrain) {
+    process.stderr.once('drain', drainStdout);
+  } else {
+    drainStdout();
+  }
+}
+
 // Graceful shutdown (moved from api.ts so subscribe/keepAlive can override)
 process.on('SIGINT', () => {
   disconnectApi();
-  process.exit(0);
+  fastExit(0);
 });
 process.on('SIGTERM', () => {
   disconnectApi();
-  process.exit(0);
+  fastExit(0);
 });
 
 async function main(): Promise<void> {
@@ -136,6 +170,7 @@ async function main(): Promise<void> {
     disconnectApi();
     markStage('shutdown');
     markTotal();
+    fastExit(typeof process.exitCode === 'number' ? process.exitCode : 0);
   }
 }
 
